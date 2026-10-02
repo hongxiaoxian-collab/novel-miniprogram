@@ -82,3 +82,4 @@ echo "$VER" > "$VER_FILE"
 echo "    版本号已写入 deploy/version.txt -> $VER"
 echo ""
 echo "==> 完成。下一步：微信公众平台 -> 版本管理 -> 把 v$VER 提交审核（或先设为体验版）"
+exit 0
