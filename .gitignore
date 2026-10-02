@@ -26,6 +26,10 @@ logs/
 backend/logs/
 nohup.out
 
+# 发布脚本的中间产物（PowerShell 上传脚本与日志）
+deploy/.upload.ps1
+deploy/.upload.log
+
 # 临时验证产物（脚本跑出来的 json / 下载的包）
 backend/scripts/*.json
 backend/scripts/*.zip

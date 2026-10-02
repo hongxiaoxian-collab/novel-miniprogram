@@ -58,16 +58,25 @@ echo "    远端：$(git ls-remote origin refs/heads/master | cut -f1)"
 # 3) 上传小程序（版本号自动 patch+1）
 [ -n "$VER" ] || VER="$(awk -F. '{printf "%d.%d.%d",$1,$2,$3+1}' "$VER_FILE" 2>/dev/null || echo 1.0.0)"
 echo "==> 3/3 上传小程序 v$VER（$PROJ）"
-LOG=/tmp/wx-upload.log
-"$CLI" upload --project "$PROJ" -v "$VER" -d "$MSG" > "$LOG" 2>&1 || true
-tr -d '\000' < "$LOG" | grep -a -v "post-quantum\|store now\|openssh.com\|DeprecationWarning\|trace-deprecation" | tail -8
+# 必须绕开 Git Bash 直调 .bat：只要任一参数含中文（项目路径、备注），整行引号就会丢，
+# cmd 报 "'C:\Program' 不是内部或外部命令"。改由 PowerShell 执行，路径全部走无中文的联接目录。
+PS1="$PROJ/deploy/.upload.ps1"
+LOG="$PROJ/deploy/.upload.log"
+{
+  printf '\xEF\xBB\xBF'                       # UTF-8 BOM：PowerShell 5.1 才不会把中文读成乱码
+  printf '& "%s" upload --project "%s" -v %s -d "%s" *>&1 | Out-File -Encoding utf8 "%s"\n' \
+    "$CLI" "$PROJ" "$VER" "$MSG" "$LOG"
+} > "$PS1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$PS1" > /dev/null 2>&1 || true
+grep -a -v "post-quantum\|store now\|openssh.com\|DeprecationWarning\|trace-deprecation" "$LOG" | tail -8
 if grep -a -q "服务端口已关闭\|IDE service port disabled" "$LOG"; then
   echo ""
   echo "× 上传失败：开发者工具的服务端口没开。"
   echo "  手动开一次：微信开发者工具 -> 设置 -> 安全设置 -> 服务端口 -> 开启"
-  exit 1
+  rm -f "$PS1"; exit 1
 fi
-grep -a -q "√ upload" "$LOG" || echo "× 没看到上传成功标记，请到开发者工具或公众平台确认"
+grep -a -q "√ upload\|upload" "$LOG" || echo "× 没看到上传成功标记，请到开发者工具或公众平台确认"
+rm -f "$PS1"
 echo "$VER" > "$VER_FILE"
 echo "    版本号已写入 deploy/version.txt -> $VER"
 echo ""
