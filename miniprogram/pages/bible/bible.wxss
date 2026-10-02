@@ -1,0 +1,16 @@
+.note { background: #fff8e6; border: 2rpx solid #ffe08a; color: #8a6d00; font-size: 24rpx; padding: 16rpx 20rpx; margin: 16rpx 24rpx; border-radius: 12rpx; }
+.legend { font-size: 22rpx; color: #888; display: flex; gap: 24rpx; margin-top: 12rpx; flex-wrap: wrap; }
+.legend text { display: inline-flex; align-items: center; }
+.legend b { width: 20rpx; height: 20rpx; border-radius: 50%; margin-right: 8rpx; }
+.vol { font-weight: 600; margin: 16rpx 0 8rpx; color: #07c160; }
+
+/* 分卷时间线 */
+.tl { display: flex; align-items: stretch; margin: 14rpx 0; border: 2rpx solid #cfe0ff; border-radius: 12rpx; background: #f6faff; overflow: hidden; }
+.tl-left { width: 108rpx; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 14rpx 6rpx; border-right: 2rpx solid #cfe0ff; }
+.tl-no { font-size: 26rpx; font-weight: 600; color: #2b6cff; }
+.tl-words { font-size: 22rpx; color: #888; margin-top: 4rpx; }
+.tl-body { flex: 1; min-width: 0; padding: 14rpx 12rpx; }
+.tl-name { font-size: 28rpx; font-weight: 600; color: #222; }
+.tl-event { font-size: 25rpx; color: #8a6d00; margin-top: 6rpx; }
+.tl-sub { font-size: 23rpx; color: #777; margin-top: 4rpx; }
+.tl-range { flex-shrink: 0; align-self: center; padding: 0 12rpx; font-size: 23rpx; color: #2b6cff; }

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小说小程序 UI 原型 v3（定稿）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  body { background: #e9edf2; display: flex; justify-content: center; padding: 24px; color: #1a1a1a; }
+  .stage { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
+  .phone { width: 390px; background: #fff; border-radius: 38px; box-shadow: 0 12px 40px rgba(0,0,0,.18); overflow: hidden; border: 10px solid #111; position: relative; }
+  .notch { height: 26px; background: #111; width: 160px; margin: 0 auto; border-radius: 0 0 16px 16px; }
+  .screen { height: 760px; overflow-y: auto; background: #f6f7f9; }
+  .screen::-webkit-scrollbar { width: 0; }
+  .topbar { position: sticky; top: 0; background: #07c160; color: #fff; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; z-index: 5; }
+  .topbar.dark { background: #2b6cff; }
+  .topbar h1 { font-size: 17px; font-weight: 600; }
+  .seg { display: flex; background: rgba(255,255,255,.25); border-radius: 18px; padding: 3px; }
+  .seg span { padding: 5px 14px; font-size: 13px; border-radius: 15px; color: #fff; cursor: pointer; }
+  .seg span.on { background: #fff; color: #07c160; font-weight: 600; }
+  .seg.dark span.on { color: #2b6cff; }
+  .pad { padding: 14px 16px; }
+  .card { background: #fff; border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .card h3 { font-size: 14px; margin-bottom: 8px; color: #222; display: flex; align-items: center; gap: 6px; }
+  .tagrow { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: #eef9f1; color: #07c160; font-size: 12px; padding: 3px 10px; border-radius: 12px; }
+  .chip.blue { background: #eaf1ff; color: #2b6cff; }
+  .btn { display: block; width: 100%; padding: 12px; border: none; border-radius: 12px; background: #07c160; color: #fff; font-size: 15px; font-weight: 600; margin-top: 8px; cursor: pointer; }
+  .btn.ghost { background: #fff; color: #07c160; border: 1px solid #07c160; }
+  .btn.blue { background: #2b6cff; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .copy { font-size: 12px; color: #07c160; border: 1px solid #07c160; border-radius: 10px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+  .copy.blue { color: #2b6cff; border-color: #2b6cff; }
+  .muted { color: #999; font-size: 12px; }
+  .cover { width: 100%; height: 160px; border-radius: 12px; background: linear-gradient(135deg,#ffd76e,#ff7e5f); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; font-weight: 700; text-align: center; padding: 12px; }
+  .toast { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.8); color: #fff; padding: 8px 16px; border-radius: 20px; font-size: 13px; opacity: 0; transition: .25s; z-index: 99; }
+  .toast.show { opacity: 1; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modal .box { background: #fff; width: 320px; border-radius: 16px; padding: 20px; }
+  .step { display: flex; gap: 6px; margin: 10px 0; }
+  .step i { flex: 1; height: 4px; border-radius: 3px; background: #d8d8d8; }
+  .step i.on { background: #07c160; }
+  .diagram { width: 100%; background: #fafbfc; border: 1px dashed #dcdcdc; border-radius: 10px; }
+  .note { background: #fff8e6; border: 1px solid #ffe08a; color: #8a6d00; font-size: 12px; padding: 8px 10px; border-radius: 10px; margin-bottom: 12px; }
+  .legend { font-size: 11px; color: #888; display: flex; gap: 12px; margin-top: 6px; }
+  .legend b { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  .nav { display: flex; gap: 8px; margin-top: 6px; }
+  .nav button { flex: 1; padding: 9px; border: 1px solid #ddd; border-radius: 10px; background: #fff; font-size: 13px; cursor: pointer; }
+  .nav button.on { background: #07c160; color: #fff; border-color: #07c160; }
+  .hidden { display: none; }
+  .label { font-size: 12px; color: #888; margin: 8px 0 4px; }
+  .preview { width: 300px; }
+  .preview h2 { font-size: 15px; margin-bottom: 10px; }
+  .preview li { font-size: 13px; line-height: 1.9; color: #444; }
+  .preview code { background: #eef; padding: 1px 5px; border-radius: 4px; }
+  .badge { background: #07c160; color: #fff; font-size: 11px; padding: 2px 7px; border-radius: 8px; }
+  .badge.self { background: #8b5cf6; }
+  .evo { font-size: 11px; color: #8b5cf6; border: 1px solid #8b5cf6; border-radius: 10px; padding: 2px 8px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <!-- ===================== 手机原型 ===================== -->
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="topbar" id="topbar">
+      <h1 id="title">我的作品</h1>
+      <div class="seg" id="seg" onclick="switchPlatform(this)">
+        <span class="on" data-p="fanqie">番茄</span>
+        <span data-p="qimao">七猫</span>
+      </div>
+    </div>
+    <div class="screen" id="screen">
+      <!-- 作品页 -->
+      <div id="pg-works" class="pad">
+        <div class="card">
+          <div class="row"><h3>📚 我的作品（番茄）</h3><span class="muted">2 本</span></div>
+          <div class="card" style="margin-top:10px;cursor:pointer" onclick="go('intro')">
+            <div class="row"><b>都市潜龙</b><span class="copy" onclick="event.stopPropagation();copy('都市潜龙')">复制</span></div>
+            <div class="muted">男频 · 签约中 · 已写 12 章</div>
+          </div>
+          <div class="card" style="cursor:pointer" onclick="go('intro')">
+            <div class="row"><b>直播之逆袭人生</b><span class="copy" onclick="event.stopPropagation();copy('直播之逆袭人生')">复制</span></div>
+            <div class="muted">男频 · 已签约 · 已写 35 章</div>
+          </div>
+        </div>
+        <button class="btn" onclick="go('wizard')">＋ 新建小说</button>
+        <button class="btn ghost" onclick="showGuide()">首次引导 / 笔名推荐</button>
+      </div>
+
+      <!-- 新建向导 -->
+      <div id="pg-wizard" class="pad hidden">
+        <div class="step"><i class="on"></i><i></i><i></i><i></i></div>
+        <div class="card">
+          <h3>① 选题材</h3>
+          <div class="tagrow" id="topicRow">
+            <span class="chip" onclick="pickTopic(this)">都市</span>
+            <span class="chip" onclick="pickTopic(this)">玄幻</span>
+            <span class="chip" onclick="pickTopic(this)">悬疑</span>
+            <span class="chip" onclick="pickTopic(this)">历史</span>
+            <span class="chip" onclick="pickTopic(this)">科幻</span>
+            <span class="chip" onclick="pickTopic(this)">重生</span>
+            <span class="chip" onclick="pickTopic(this)">机械</span>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <input id="topicInput" placeholder="自定义题材，回车添加" style="flex:1;border:1px solid #ddd;border-radius:10px;padding:8px;font-size:13px" onkeydown="if(event.key==='Enter')addTopic()">
+            <span class="copy" onclick="addTopic()">＋ 添加</span>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn ghost" style="margin:0" onclick="aiRecommendTopic()">🤖 AI 推荐题材（按当前平台爆款）</button>
+          </div>
+          <div class="muted" style="margin-top:8px">💡 点击后 AI 联网扫榜，返回 3-5 个当前热门题材供你选</div>
+          <div class="label" style="margin-top:10px">每章目标字数（硬指标，可改）</div>
+          <input id="wordsInput" value="2000" style="width:120px;border:1px solid #ddd;border-radius:10px;padding:8px;font-size:13px">
+          <div id="topicRec" class="hidden" style="margin-top:10px;background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:10px">
+            <div class="muted" style="margin-bottom:6px">🔥 番茄当前爆款题材（AI 扫榜）：</div>
+            <div class="tagrow" id="topicRecRow"></div>
+            <div class="muted" style="margin-top:6px">点选任一题材即可采用</div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>② 目标读者</h3>
+          <div class="tagrow" id="readerTags">
+            <span class="chip" onclick="pick(this)">男频</span>
+            <span class="chip" onclick="pick(this)">女频</span>
+          </div>
+        </div>
+        <div class="card">
+          <h3>③ 签约状态</h3>
+          <div class="tagrow">
+            <span class="chip" onclick="pick(this)">签约（未签约）</span>
+            <span class="chip" onclick="pick(this)">已签约</span>
+          </div>
+        </div>
+        <button class="btn" onclick="wizardNext()">下一步：AI 起名 + 大纲</button>
+      </div>
+
+      <!-- AI 起名大纲 -->
+      <div id="pg-outline" class="pad hidden">
+        <div class="step"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+        <div class="card">
+          <h3>④ AI 生成作品名 + 大纲</h3>
+          <div class="label">推荐作品名</div>
+          <div class="row"><b>都市潜龙</b><span class="copy" onclick="copy('都市潜龙')">复制</span></div>
+          <div class="label">一句话卖点</div>
+          <div>退役兵王回归都市，一手医术一手拳脚，踩尽纨绔登顶人生。</div>
+          <div class="label">大纲（三幕）</div>
+          <div class="muted">第一幕：归来受辱→立威；第二幕：商战+异能升级；第三幕：揭身世、登顶。</div>
+        </div>
+        <button class="btn ghost" onclick="copy('都市潜龙｜退役兵王回归都市…')">复制名+大纲</button>
+        <button class="btn" onclick="go('bible')">✓ 定版，生成全书脉络</button>
+        <button class="btn ghost" onclick="alert('已按你的意见重生成（演示）')">↻ 重来（提意见）</button>
+      </div>
+
+      <!-- 作品介绍页 -->
+      <div id="pg-intro" class="pad hidden">
+        <div class="cover">都市潜龙<br><span style="font-size:12px;font-weight:400">AI 生成封面</span></div>
+        <button class="btn ghost" style="margin-top:8px" onclick="alert('封面已存相册（演示）')">存封面到相册</button>
+        <div class="card">
+          <div class="row"><b>作品名</b><span class="copy" onclick="copy('都市潜龙')">复制</span></div>
+          <hr style="border:none;border-top:1px solid #eee;margin:8px 0">
+          <div class="row"><span>简介</span><span class="copy" onclick="copy('退役兵王回归都市…')">复制</span></div>
+          <div class="muted" style="margin-top:4px">退役兵王回归都市，一手医术一手拳脚…</div>
+          <hr style="border:none;border-top:1px solid #eee;margin:8px 0">
+          <div class="row"><span>主角名</span><span class="copy" onclick="copy('林北')">复制</span></div>
+          <div class="row" style="margin-top:6px"><span>女主名</span><span class="copy" onclick="copy('苏晚')">复制</span></div>
+        </div>
+        <div class="card">
+          <div class="label">签约模式</div><div>签约（未签约）</div>
+          <div class="label">目标读者</div><div class="tagrow"><span class="chip">男频</span></div>
+          <div class="label">阅读标签</div>
+          <div class="tagrow"><span class="chip">都市·逆袭·兵王·爽文·神医</span></div>
+          <div class="label">内容标签</div>
+          <div class="tagrow"><span class="chip">情节·情感·人设·世界观</span></div>
+        </div>
+        <button class="btn" onclick="go('bible')">查看全书脉络</button>
+        <button class="btn ghost" onclick="openChapterList()">📑 章节目录</button>
+        <button class="btn ghost" onclick="go('chapter')">继续写 / 续更</button>
+        <div class="divider" style="height:1px;background:#eee;margin:10px 0"></div>
+        <div class="muted" style="margin-bottom:6px">整部调整（审核相关）</div>
+        <button class="btn ghost" onclick="alert('（演示）未审核·调整整部小说')">📝 未审核·调整整部小说</button>
+        <button class="btn ghost" style="color:#e53935;border-color:#e53935" onclick="alert('（演示）审核未过·重新调整整部小说')">⚠️ 审核未过·重新调整整部小说</button>
+      </div>
+
+      <!-- 全书脉络（含图解） -->
+      <div id="pg-bible" class="pad hidden">
+        <div class="note">📖 《全书脉络 · 故事圣经》是后续每一章写作的<strong>唯一权威上下文</strong>，已强制带入 AI 写稿（后台执行，不在界面显示）。</div>
+        <div class="card">
+          <h3>一句话卖点</h3>
+          <div>退役兵王回归都市，一手医术一手拳脚，踩尽纨绔登顶人生。</div>
+        </div>
+        <div class="card">
+          <h3>三幕分卷结构</h3>
+          <div class="muted">第一幕 1-30章：归来受辱→立威；第二幕 31-120章：商战+异能升级；第三幕 121-200章：揭身世、登顶。</div>
+        </div>
+        <div class="card">
+          <h3>🕸 人物关系图</h3>
+          <svg class="diagram" viewBox="0 0 340 200">
+            <line x1="90" y1="60" x2="200" y2="50" stroke="#bbb" stroke-width="2"/>
+            <line x1="90" y1="60" x2="60" y2="150" stroke="#e57373" stroke-width="2"/>
+            <line x1="200" y1="50" x2="280" y2="130" stroke="#bbb" stroke-width="2"/>
+            <line x1="90" y1="60" x2="280" y2="130" stroke="#bbb" stroke-width="2" stroke-dasharray="4"/>
+            <circle cx="90" cy="60" r="22" fill="#07c160"/><text x="90" y="64" fill="#fff" font-size="12" text-anchor="middle">林北</text>
+            <circle cx="200" cy="50" r="20" fill="#ff7eb3"/><text x="200" y="54" fill="#fff" font-size="11" text-anchor="middle">苏晚</text>
+            <circle cx="60" cy="150" r="20" fill="#e57373"/><text x="60" y="154" fill="#fff" font-size="11" text-anchor="middle">赵天</text>
+            <circle cx="280" cy="130" r="20" fill="#888"/><text x="280" y="134" fill="#fff" font-size="11" text-anchor="middle">老者</text>
+            <text x="150" y="44" fill="#888" font-size="10">恋人</text>
+            <text x="58" y="110" fill="#e57373" font-size="10">宿敌</text>
+          </svg>
+          <div class="legend"><span><b style="background:#07c160"></b>主角</span><span><b style="background:#ff7eb3"></b>女主</span><span><b style="background:#e57373"></b>反派</span><span><b style="background:#888"></b>导师</span></div>
+        </div>
+        <div class="card">
+          <h3>🗺 势力地图</h3>
+          <svg class="diagram" viewBox="0 0 340 170">
+            <rect x="14" y="14" width="140" height="60" rx="8" fill="#eaf1ff"/><text x="84" y="40" font-size="12" text-anchor="middle" fill="#2b6cff">江城·林家</text><text x="84" y="58" font-size="10" text-anchor="middle" fill="#666">主角出身</text>
+            <rect x="186" y="14" width="140" height="60" rx="8" fill="#ffeaea"/><text x="256" y="40" font-size="12" text-anchor="middle" fill="#e53935">赵氏集团</text><text x="256" y="58" font-size="10" text-anchor="middle" fill="#666">反派势力</text>
+            <rect x="100" y="100" width="140" height="54" rx="8" fill="#eafaf0"/><text x="170" y="124" font-size="12" text-anchor="middle" fill="#07c160">隐门·神医谷</text><text x="170" y="142" font-size="10" text-anchor="middle" fill="#666">异能来源</text>
+            <line x1="154" y1="74" x2="200" y2="100" stroke="#bbb" stroke-width="2" stroke-dasharray="4"/>
+            <line x1="186" y1="74" x2="200" y2="100" stroke="#bbb" stroke-width="2" stroke-dasharray="4"/>
+          </svg>
+          <div class="legend"><span><b style="background:#2b6cff"></b>正派</span><span><b style="background:#e53935"></b>反派</span><span><b style="background:#07c160"></b>中立/隐秘</span></div>
+        </div>
+        <div class="card">
+          <h3>🔒 六大状态锁（已发生事实锁死）</h3>
+          <div class="muted">死亡：赵天父 · 毁灭：林家老宅 · 结局：— · 时间：2024主线 · 遗失：祖传玉佩（已埋伏笔）</div>
+        </div>
+        <div class="card">
+          <h3>🧵 伏笔台账</h3>
+          <div class="muted">① 玉佩来历 → 待回收(第三幕) ② 老者身份 → 已回收(第二幕末) ③ 赵天复仇 → 进行中</div>
+        </div>
+        <div class="card">
+          <h3>📐 设定数据库（十档）</h3>
+          <div class="muted">世界观·时间线·地点·人物·事件·道具·势力·伏笔·台账·bug补录 —— 共 10 档，写稿强制校验。</div>
+        </div>
+        <button class="btn ghost" onclick="openChapterList()">📑 章节目录</button>
+        <button class="btn" onclick="go('chapter')">开始 / 继续写作</button>
+      </div>
+
+      <!-- 章节写作（无可见写前查三档，后台执行） -->
+      <div id="pg-chapter" class="pad hidden">
+        <div class="row">
+          <h3 id="chTitle">第 13 章</h3>
+          <span class="copy" onclick="openChapterList()">📑 章节目录</span>
+        </div>
+        <div class="muted" id="chBook">都市潜龙 · 共 35 章</div>
+        <div class="card">
+          <div class="row"><b>章名：夜宴杀机</b><span class="copy" onclick="copy('夜宴杀机')">复制章名</span></div>
+        </div>
+        <div class="card">
+          <div class="row"><span>正文</span><span class="copy" onclick="copy('（正文示例）林北踏入宴会厅，灯影里赵天举杯…')">复制正文</span></div>
+          <div style="font-size:13px;line-height:1.8;color:#333;margin-top:6px">（正文示例）林北踏入宴会厅，灯影里赵天举杯相迎，眼底却藏着冷意。他指尖轻转那枚祖传玉佩——第三幕才揭开的身世，此刻尚是谜……</div>
+        </div>
+        <div class="nav">
+          <button onclick="alert('上一章（演示）')">← 上一章</button>
+          <button onclick="alert('下一章（演示）')">下一章 →</button>
+        </div>
+        <button class="btn ghost" onclick="openRewrite()">↺ 重写本章（填原因）</button>
+        <button class="btn" onclick="go('bot')">🤖 让扣子续写下一章</button>
+        <button class="btn ghost" onclick="go('works')">返回作品列表</button>
+      </div>
+
+      <!-- 扣子写稿 -->
+      <div id="pg-bot" class="pad hidden">
+        <div class="row"><h3>🤖 扣子写稿 Bot</h3><span class="evo">自进化</span></div>
+        <div class="card">
+          <div class="tagrow">
+            <span class="chip">扫榜选题</span><span class="chip">黄金三章</span><span class="chip">六大状态锁</span>
+            <span class="chip">十维审查</span><span class="chip">情绪曲线</span><span class="chip">去AI润色</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="muted">· 联网搜爆品 / 看排行榜 / 摸读者喜好<br>· 按《全书脉络》续写，自动防偏防重防断链<br>· 写前查三档 / 写完更五档（后台执行）</div>
+        </div>
+        <div class="card">
+          <div class="label">指令</div>
+          <textarea id="botInput" rows="3" style="width:100%;border:1px solid #ddd;border-radius:10px;padding:8px;font-size:13px" placeholder="例如：写第14章，推进赵天复仇线，回收玉佩伏笔"></textarea>
+          <div class="label" style="margin-top:8px">每章目标字数（硬指标，可改）</div>
+          <input id="botWords" value="2000" style="width:120px;border:1px solid #ddd;border-radius:10px;padding:8px;font-size:13px">
+          <button class="btn" onclick="botRun()">发送（带入全书脉络）</button>
+        </div>
+        <div class="card hidden" id="botOut">
+          <h3>Bot 回稿</h3>
+          <div class="muted" id="botText"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 说明 ===================== -->
+  <div class="preview">
+    <h2>UI 定稿 v3 说明</h2>
+    <ol>
+      <li><b>平台切换</b>：顶部全局分段控件；番茄绿 / 七猫蓝主题（切换即变）。</li>
+      <li><b>全书脉络新增图解</b>：<code>人物关系图</code> + <code>势力地图</code> 两幅 SVG，与六大状态锁、伏笔台账、十档设定并列。</li>
+      <li><b>写前查三档已移入后台</b>：章节页不再显示该提示，作为 AI 写稿强制标准（界面零干扰）。</li>
+      <li><b>定版闭环</b>：新建向导④ → 定版 → 自动生成全书脉络 → 带图解的脉络屏 → 开始写作。</li>
+      <li>封面 = AI 生成；复制按钮覆盖作品名/简介/主角名/章名/正文。</li>
+    </ol>
+    <p class="muted" style="margin-top:12px">点手机内任意按钮可跳转体验。确认无误即据此写代码。</p>
+  </div>
+</div>
+
+<div class="toast" id="toast">已复制</div>
+<div class="modal hidden" id="guideModal">
+  <div class="box">
+    <h3 style="margin-bottom:10px">首次引导 · 番茄</h3>
+    <p style="font-size:13px;color:#555;line-height:1.7">1. 用作家助手 App 注册并实名。<br>2. 推荐笔名：<b>北境孤狼</b>（可一键复制）。<br>3. 作家简介模板已生成，复制后稍改即可。</p>
+    <button class="btn" onclick="copy('北境孤狼')">复制推荐笔名</button>
+    <button class="btn ghost" onclick="hideGuide()">我知道了</button>
+  </div>
+</div>
+
+<!-- 章节目录 -->
+<div class="modal hidden" id="chapterListModal">
+  <div class="box" style="width:340px;max-height:70vh;overflow:auto">
+    <div class="row"><h3 style="margin-bottom:0">📑 章节目录</h3><span class="copy" onclick="hideChapterList()">关闭</span></div>
+    <div class="muted" style="margin:6px 0">点章节跳转；AI 续写会读取此目录防重复/断链</div>
+    <div id="chapterList"></div>
+  </div>
+</div>
+
+<!-- 重写原因 -->
+<div class="modal hidden" id="rewriteModal">
+  <div class="box">
+    <h3 style="margin-bottom:8px">重写本章</h3>
+    <p class="muted" style="font-size:13px;line-height:1.7">填写重写原因 / 你的意图，AI 据此改写这一章（保留全书脉络一致）。</p>
+    <textarea id="rewriteReason" rows="3" style="width:100%;border:1px solid #ddd;border-radius:10px;padding:8px;font-size:13px" placeholder="例如：节奏太慢，男主性格再狠一点，加一段打脸"></textarea>
+    <button class="btn" onclick="doRewrite()">确定重写</button>
+    <button class="btn ghost" onclick="hideRewrite()">取消</button>
+  </div>
+</div>
+
+<script>
+  function switchPlatform(el){
+    const spans = el.querySelectorAll('span');
+    spans.forEach(s=>s.classList.remove('on'));
+    const t = event.target; if(!t.dataset.p) return;
+    t.classList.add('on');
+    const p = t.dataset.p;
+    const isQ = p==='qimao';
+    document.getElementById('topbar').classList.toggle('dark', isQ);
+    document.getElementById('seg').classList.toggle('dark', isQ);
+    document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('blue', isQ));
+    document.querySelectorAll('.copy').forEach(c=>c.classList.toggle('blue', isQ));
+    document.querySelector('#title').textContent = '我的作品';
+    // 读者标签随平台变化
+    const rt = document.getElementById('readerTags');
+    if(rt){ rt.innerHTML = isQ
+      ? '<span class="chip blue" onclick="pick(this)">男生</span><span class="chip blue" onclick="pick(this)">女生</span>'
+      : '<span class="chip" onclick="pick(this)">男频</span><span class="chip" onclick="pick(this)">女频</span>'; }
+  }
+  function go(pg){
+    ['works','wizard','outline','intro','bible','chapter','bot'].forEach(p=>{
+      document.getElementById('pg-'+p).classList.toggle('hidden', p!==pg);
+    });
+    document.getElementById('screen').scrollTop = 0;
+  }
+  function pick(el){ el.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.remove('on')); el.classList.add('on'); }
+  function pickTopic(el){
+    const row = el.closest('.tagrow');
+    row.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+    el.classList.add('on');
+    recommendReader(el.textContent.trim());
+  }
+  // 题材选定后联动推荐目标读者（男频/女频 · 七猫男生/女生）
+  function recommendReader(topic){
+    const isQ = document.getElementById('seg').querySelector('.on').dataset.p==='qimao';
+    const female = ['空间种田','甜宠','总裁','古言','现言','重生甜妻'];
+    let rec = female.includes(topic) ? '女频' : '男频';
+    if(isQ) rec = rec==='男频' ? '男生' : '女生';
+    const rt = document.getElementById('readerTags');
+    if(rt) rt.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on', c.textContent.trim()===rec));
+  }
+  function wizardNext(){ go('outline'); }
+  function addTopic(){
+    const i = document.getElementById('topicInput'); const v = i.value.trim();
+    if(!v) return;
+    const row = document.getElementById('topicRow');
+    const s = document.createElement('span'); s.className='chip'; s.textContent=v; s.onclick=function(){pickTopic(this)};
+    row.appendChild(s); i.value=''; s.click();
+  }
+  function aiRecommendTopic(){
+    const box = document.getElementById('topicRec'); box.classList.remove('hidden');
+    const isQ = document.getElementById('seg').querySelector('.on').dataset.p==='qimao';
+    const rec = isQ
+      ? ['赘婿','战神','神豪','鉴宝','神医']
+      : ['重生逆袭','空间种田','诸天万界','诡异修仙','直播带货'];
+    const row = document.getElementById('topicRecRow'); row.innerHTML='';
+    rec.forEach(t=>{ const s=document.createElement('span'); s.className='chip'; s.textContent=t;
+      s.onclick=function(){ const r=document.getElementById('topicRow'); const n=document.createElement('span'); n.className='chip'; n.textContent=t; n.onclick=function(){pickTopic(this)}; r.appendChild(n); n.click(); box.classList.add('hidden'); };
+      row.appendChild(s); });
+  }
+  function copy(t){ const x=document.getElementById('toast'); x.textContent='已复制：'+t.slice(0,8); x.classList.add('show'); setTimeout(()=>x.classList.remove('show'),1200); }
+  function showGuide(){ document.getElementById('guideModal').classList.remove('hidden'); }
+  function hideGuide(){ document.getElementById('guideModal').classList.add('hidden'); }
+  function botRun(){ const v=document.getElementById('botInput').value; if(!v){alert('请输入指令');return;} document.getElementById('botOut').classList.remove('hidden'); document.getElementById('botText').textContent='（演示）已带入《全书脉络》生成第14章：…赵天设局、玉佩伏笔回收，状态锁校验通过，无重复无断链。'; }
+
+  // ===== 章节目录（按卷分组） =====
+  const volumes = [
+    {id:1,name:'卷一 · 江城风云'},{id:2,name:'卷二 · 商海争锋'},{id:3,name:'卷三 · 隐门之谜'}
+  ];
+  const chapters = [
+    {n:1,t:'归来受辱',v:1},{n:2,t:'初露锋芒',v:1},{n:3,t:'神医之手',v:1},{n:4,t:'商界初探',v:1},
+    {n:5,t:'赵天设局',v:1},{n:6,t:'反将一军',v:1},{n:7,t:'玉佩之谜',v:1},{n:8,t:'隐门来信',v:1},
+    {n:9,t:'苏晚被困',v:1},{n:10,t:'夜救红颜',v:1},{n:11,t:'身份疑云',v:1},{n:12,t:'立威江城',v:1},
+    {n:13,t:'夜宴杀机',v:2},{n:14,t:'（待写）',v:2},{n:15,t:'（待写）',v:2}
+  ];
+  let curCh = 13;
+  function openChapterList(){
+    const box = document.getElementById('chapterList'); box.innerHTML='';
+    volumes.forEach(vol=>{
+      const chs = chapters.filter(c=>c.v===vol.id);
+      const head=document.createElement('div'); head.className='card'; head.style.background='#eef9f1'; head.style.cursor='pointer';
+      head.innerHTML='<div class="row"><b>📕 '+vol.name+'</b><span class="muted">'+chs.length+' 章 ▾</span></div>';
+      const sub=document.createElement('div'); sub.style.display='none';
+      chs.forEach(c=>{
+        const d=document.createElement('div'); d.className='card'; d.style.margin='6px 0 0'; d.style.cursor='pointer';
+        d.style.background = c.n===curCh ? '#eafaf0' : '#fff';
+        d.innerHTML='<div class="row"><b style="font-weight:500">第'+c.n+'章 '+c.t+'</b>'+(c.n===curCh?'<span class="badge">当前</span>':'')+'</div>';
+        d.onclick=()=>gotoChapter(c.n);
+        sub.appendChild(d);
+      });
+      head.onclick=()=>{ sub.style.display = sub.style.display==='none'?'block':'none'; };
+      box.appendChild(head); box.appendChild(sub);
+    });
+    document.getElementById('chapterListModal').classList.remove('hidden');
+  }
+  function hideChapterList(){ document.getElementById('chapterListModal').classList.add('hidden'); }
+  function openRewrite(){ document.getElementById('rewriteModal').classList.remove('hidden'); }
+  function hideRewrite(){ document.getElementById('rewriteModal').classList.add('hidden'); }
+  function doRewrite(){
+    const r = document.getElementById('rewriteReason').value.trim();
+    if(!r){ alert('请填写重写原因'); return; }
+    hideRewrite();
+    alert('（演示）已把重写原因传给扣子：'+r.slice(0,20)+'…\nAI 按意图改写本章，保留全书脉络一致');
+  }
+  function gotoChapter(n){
+    curCh=n; const c=chapters.find(x=>x.n===n);
+    document.getElementById('chTitle').textContent='第 '+n+' 章'+(c.t==='（待写）'?'（待写）':' · '+c.t);
+    document.getElementById('chBook').textContent='都市潜龙 · 共 '+chapters.length+' 章';
+    document.getElementById('screen').scrollTop=0;
+    hideChapterList();
+  }
+</script>
+</body>
+</html>

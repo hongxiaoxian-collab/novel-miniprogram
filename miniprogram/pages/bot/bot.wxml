@@ -1,0 +1,24 @@
+<view class="card">
+  <view class="row"><view class="card-h">🤖 扣子写稿 Bot</view><view class="evo">自进化</view></view>
+  <view class="tagrow" style="margin-top:12rpx">
+    <view class="chip" wx:for="{{tags}}" wx:key="*this">{{item}}</view>
+  </view>
+</view>
+
+<view class="card">
+  <view class="muted">· 联网搜爆品 / 看排行榜 / 摸读者喜好<br/>· 按《全书脉络》续写，自动防偏防重防断链<br/>· 写前查三档 / 写完更五档（后台执行）</view>
+</view>
+
+<view class="card">
+  <view class="label">写稿指令（当前作品：{{novelTitle}}）</view>
+  <textarea value="{{instruction}}" bindinput="onInput" auto-height maxlength="-1" placeholder="例如：写下一章，推进反派线，回收某个伏笔" style="border:2rpx solid #ddd;border-radius:12rpx;padding:16rpx;font-size:28rpx;min-height:160rpx" />
+  <view class="label">每章目标字数（硬指标，可改）</view>
+  <input value="{{wordCount}}" bindinput="onWords" type="number" placeholder="2000" style="border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx" />
+  <view class="btn" bindtap="send" wx:if="{{!loading}}">发送（带入全书脉络）</view>
+  <view class="btn" wx:else style="opacity:.6">写稿中…</view>
+</view>
+
+<view class="card" wx:if="{{result}}">
+  <view class="card-h">Bot 回稿</view>
+  <text style="font-size:28rpx;line-height:1.8;white-space:pre-wrap">{{result}}</text>
+</view>

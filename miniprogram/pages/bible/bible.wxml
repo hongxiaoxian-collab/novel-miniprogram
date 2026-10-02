@@ -1,0 +1,83 @@
+<wxs src="../../utils/chtitle.wxs" module="t" />
+<view wx:if="{{status==='none'}}" class="card"><view class="muted" style="text-align:center;padding:40rpx">尚未定版，请先在新建向导点「定版，生成全书脉络」。</view></view>
+
+<view wx:if="{{bible}}">
+  <view class="note">📖 《全书脉络·故事圣经》是后续每一章写作的<text style="color:#8a6d00;font-weight:600">唯一权威上下文</text>，已强制带入 AI 写稿（后台执行，不在界面显示）。</view>
+
+  <view class="card">
+    <view class="card-h">一句话卖点</view>
+    <view>{{bible.sellPoint}}</view>
+  </view>
+
+  <view class="card">
+    <view class="card-h">三幕分卷结构</view>
+    <view class="muted" wx:for="{{bible.threeAct}}" wx:key="*this">· {{item}}</view>
+  </view>
+
+  <!-- 分卷时间线（时间锚点 + 字数 + 章节区间） -->
+  <view class="card" wx:if="{{bible.volumes.length}}">
+    <view class="card-h">🗓 分卷时间线</view>
+    <view class="tl" wx:for="{{bible.volumes}}" wx:key="volume" wx:for-item="v">
+      <view class="tl-left">
+        <view class="tl-no">卷{{v.volume}}</view>
+        <view class="tl-words">{{v.words}}</view>
+      </view>
+      <view class="tl-body">
+        <view class="tl-name">{{v.name}}</view>
+        <view class="tl-event" wx:if="{{v.keyEvent}}">★ {{v.keyEvent}}</view>
+        <view class="tl-sub" wx:if="{{v.arc}}">主线：{{v.arc}}</view>
+        <view class="tl-sub" wx:if="{{v.climax}}">爆发点：{{v.climax}}</view>
+        <view class="tl-sub" wx:if="{{v.hook}}">卷末钩子：{{v.hook}}</view>
+      </view>
+      <view class="tl-range">{{v.chapterRange}} 章</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-h">🕸 人物关系图</view>
+    <canvas type="2d" id="relCanvas" style="width:100%;height:300rpx"></canvas>
+    <view class="legend">
+      <text><b style="background:#07c160"></b>主角</text><text><b style="background:#ff7eb3"></b>女主</text>
+      <text><b style="background:#e57373"></b>反派</text><text><b style="background:#888"></b>导师/配角</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-h">🗺 势力地图</view>
+    <canvas type="2d" id="facCanvas" style="width:100%;height:300rpx"></canvas>
+    <view class="legend">
+      <text><b style="background:#2b6cff"></b>正派</text><text><b style="background:#e53935"></b>反派</text><text><b style="background:#07c160"></b>中立/隐秘</text>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="card-h">🔒 六大状态锁（已发生事实锁死）</view>
+    <view class="muted">{{bible.stateLocks}}</view>
+  </view>
+
+  <view class="card">
+    <view class="card-h">🧵 伏笔台账</view>
+    <view class="muted" wx:for="{{bible.foreshadow}}" wx:key="item">· {{item.item}} → {{item.status}}（{{item.plan}}）</view>
+  </view>
+
+  <view class="card">
+    <view class="card-h">📐 设定数据库（十档）</view>
+    <view class="muted" wx:for="{{bible.settingDB}}" wx:key="*this" wx:for-item="v" wx:for-index="k">· {{k}}：{{v}}</view>
+  </view>
+
+  <view class="card" wx:if="{{bible.keyChapters.length}}">
+    <view class="card-h">📜 关键节点章（每卷选摘）</view>
+    <view class="muted" wx:for="{{bible.keyChapters}}" wx:key="order">· 卷{{item.volume}} {{t.ch(item.order, item.title)}}：{{item.summary}}</view>
+  </view>
+
+  <view class="card" wx:elif="{{bible.chapterOutline.length}}">
+    <view class="card-h">📜 分卷章纲</view>
+    <block wx:for="{{bible.chapterOutline}}" wx:key="volume" wx:for-item="vol">
+      <view class="vol">卷{{vol.volume}} · {{vol.arc}}</view>
+      <view class="muted" wx:for="{{vol.chapters}}" wx:key="order" wx:for-item="ch">{{t.ch(ch.order, ch.title)}}：{{ch.summary}}</view>
+    </block>
+  </view>
+
+  <view class="btn ghost" bindtap="goChapters">📑 章节目录</view>
+  <view class="btn" bindtap="goWrite">开始 / 继续写作</view>
+</view>

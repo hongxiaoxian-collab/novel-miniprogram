@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "新建小说",
+  "navigationBarBackgroundColor": "#07c160",
+  "usingComponents": {
+    "platform-switch": "/components/platform-switch/platform-switch"
+  }
+}

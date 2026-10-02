@@ -1,0 +1,43 @@
+page { background: #f6f7f9; font-family: -apple-system, "PingFang SC", sans-serif; color: #1a1a1a; }
+.card { background: #fff; border-radius: 14rpx; padding: 24rpx; margin: 16rpx 24rpx; box-shadow: 0 1rpx 6rpx rgba(0,0,0,.05); }
+.card-h { font-size: 30rpx; font-weight: 600; margin-bottom: 16rpx; }
+.row { display: flex; align-items: center; justify-content: space-between; }
+.muted { color: #999; font-size: 24rpx; }
+.btn { margin: 16rpx 24rpx 0; background: #07c160; color: #fff; font-size: 32rpx; font-weight: 600; border-radius: 12rpx; padding: 22rpx 0; text-align: center; }
+.btn.blue { background: #2b6cff; }
+.btn.ghost { background: #fff; color: #07c160; border: 2rpx solid #07c160; }
+.btn.ghost.blue { color: #2b6cff; border-color: #2b6cff; }
+.copy { font-size: 24rpx; color: #07c160; border: 2rpx solid #07c160; border-radius: 20rpx; padding: 6rpx 18rpx; }
+.copy.blue { color: #2b6cff; border-color: #2b6cff; }
+.del { font-size: 24rpx; color: #e64340; border: 2rpx solid #e64340; border-radius: 20rpx; padding: 6rpx 18rpx; }
+.btn.ghost.del { color: #e64340; border-color: #e64340; background: #fff; }
+.btn.ghost.del.blue { color: #e64340; border-color: #e64340; }
+.chip { background: #eef9f1; color: #07c160; font-size: 26rpx; padding: 10rpx 24rpx; border-radius: 28rpx; margin: 0 16rpx 16rpx 0; display: inline-block; }
+.chip.blue { background: #eaf1ff; color: #2b6cff; }
+.chip.on { background: #07c160; color: #fff; font-weight: 600; }
+.chip.blue.on { background: #2b6cff; color: #fff; }
+.tick { font-weight: 700; margin-right: 6rpx; }
+.tagrow { display: flex; flex-wrap: wrap; }
+.picked { font-size: 24rpx; color: #999; margin: 12rpx 0 4rpx; }
+.picked.has { color: #07c160; font-weight: 600; }
+.picked.has.blue { color: #2b6cff; }
+.label { font-size: 24rpx; color: #888; margin: 16rpx 0 8rpx; }
+.divider { height: 2rpx; background: #eee; margin: 16rpx 0; }
+.cover { width: 100%; height: 320rpx; border-radius: 16rpx; background: linear-gradient(135deg,#ffd76e,#ff7e5f); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 36rpx; font-weight: 700; text-align: center; }
+.evo { font-size: 22rpx; color: #8b5cf6; border: 2rpx solid #8b5cf6; border-radius: 20rpx; padding: 4rpx 16rpx; }
+.badge { background: #07c160; color: #fff; font-size: 22rpx; padding: 4rpx 14rpx; border-radius: 16rpx; }
+
+/* ===== 统一进度条（体检 / 定稿 / 续写 / 撞车修复 共用）===== */
+.pcard { margin: 16rpx 24rpx; padding: 20rpx; background: #fff; border: 2rpx solid #eef1f4; border-radius: 16rpx; box-shadow: 0 4rpx 16rpx rgba(0,0,0,.04); }
+.pcard-h { display: flex; align-items: center; justify-content: space-between; }
+.pcard-t { font-size: 29rpx; font-weight: 600; color: #222; }
+.pcard-n { font-size: 24rpx; color: #888; }
+.pbar { margin-top: 14rpx; height: 16rpx; background: #eef1f4; border-radius: 999rpx; overflow: hidden; }
+.pbar-in { height: 100%; border-radius: 999rpx; background: linear-gradient(90deg,#07c160,#4cd68a); transition: width .4s ease; }
+.pbar-in.blue { background: linear-gradient(90deg,#2b6cff,#6ea0ff); }
+.pcard-cur { margin-top: 10rpx; font-size: 25rpx; color: #555; }
+.pcard-step { display: flex; align-items: flex-start; margin-top: 6rpx; font-size: 24rpx; color: #666; }
+.pcard-step .ico { width: 34rpx; flex: none; color: #bbb; }
+.pcard-step.done .ico { color: #07c160; }
+.pcard-step.failed .ico { color: #e64340; }
+.pcard-hint { margin-top: 12rpx; font-size: 23rpx; color: #999; }

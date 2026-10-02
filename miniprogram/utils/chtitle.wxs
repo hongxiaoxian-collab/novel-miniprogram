@@ -1,0 +1,20 @@
+// 章节标题统一渲染：章号是独立字段，章名里不该再带一次「第N章」。
+// 历史数据与 AI 输出都可能写成「第1章 刚重生就被老婆提离婚？」，直接拼就会出现「第1章 第1章 …」。
+var RE_PREFIX = getRegExp('^\\s*第\\s*[0-9０-９一二三四五六七八九十百千两]+\\s*章\\s*[·:：、,，.\\-—－\\s]*');
+
+function chNo(title) {
+  if (!title) return '';
+  return title.replace(RE_PREFIX, '');
+}
+
+function ch(order, title) {
+  var t = chNo(title);
+  return t ? '第' + order + '章 ' + t : '第' + order + '章';
+}
+
+// 目录里只要「第N章」，章名单独一段（避免长名被截断）
+function no(order) {
+  return '第' + order + '章';
+}
+
+module.exports = { ch: ch, chNo: chNo, no: no };

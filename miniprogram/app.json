@@ -1,0 +1,24 @@
+{
+  "pages": [
+    "pages/works/works",
+    "pages/guide/guide",
+    "pages/wizard/wizard",
+    "pages/intro/intro",
+    "pages/bible/bible",
+    "pages/chapter/chapter",
+    "pages/bot/bot"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#07c160",
+    "navigationBarTitleText": "小说助手",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f6f7f9"
+  },
+  "style": "v2",
+  "networkTimeout": {
+    "request": 120000,
+    "uploadFile": 120000,
+    "downloadFile": 120000
+  },
+  "sitemapLocation": "sitemap.json"
+}

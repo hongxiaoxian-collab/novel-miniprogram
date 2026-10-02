@@ -1,0 +1,4 @@
+<view class="seg {{platform==='qimao' ? 'dark' : ''}}">
+  <view class="opt {{platform==='fanqie' ? 'on' : ''}}" data-p="fanqie" bindtap="onTap">番茄</view>
+  <view class="opt {{platform==='qimao' ? 'on' : ''}}" data-p="qimao" bindtap="onTap">七猫</view>
+</view>

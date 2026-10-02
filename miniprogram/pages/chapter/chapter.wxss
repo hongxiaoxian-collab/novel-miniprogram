@@ -1,0 +1,82 @@
+.mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; z-index: 50; }
+.sheet { background: #fff; width: 100%; border-radius: 24rpx 24rpx 0 0; padding: 24rpx; max-height: 80vh; }
+.vol { font-weight: 600; margin: 16rpx 0 8rpx; color: #07c160; }
+.ch { padding: 18rpx 20rpx; border-radius: 12rpx; background: #f6f7f9; margin-bottom: 10rpx; font-size: 28rpx; }
+.ch.cur { background: #eafaf0; color: #07c160; font-weight: 600; }
+.row button { font-size: 28rpx; padding: 18rpx 0; }
+.task-row { display: flex; align-items: flex-start; padding: 6rpx 0; }
+.task-ico { width: 40rpx; flex-shrink: 0; font-size: 26rpx; color: #bbb; }
+.task-ico.done { color: #07c160; }
+.task-ico.failed { color: #e64340; }
+.task-label { font-size: 27rpx; color: #333; }
+.task-note { font-size: 24rpx; color: #999; margin-left: 12rpx; }
+
+/* 一致性体检结果 */
+.issue { margin-top: 16rpx; padding: 16rpx; background: #fafafa; border: 2rpx solid #eee; border-radius: 12rpx; }
+.issue-h { display: flex; align-items: center; font-size: 26rpx; color: #333; font-weight: 600; }
+.issue-lv { flex: none; font-size: 20rpx; color: #fff; border-radius: 6rpx; padding: 2rpx 10rpx; margin-right: 10rpx; background: #999; }
+.issue-lv.lv-high { background: #e74c3c; }
+.issue-lv.lv-mid { background: #e6a23c; }
+.issue-lv.lv-low { background: #909399; }
+.issue-q { margin-top: 8rpx; font-size: 26rpx; color: #c0392b; line-height: 1.6; }
+.issue-fix { margin-top: 6rpx; font-size: 25rpx; color: #07a352; line-height: 1.6; }
+
+/* 体检结果全屏层
+   注意：scroll-view 必须有**确定高度**才会滚动（flex:1 在部分机型拿不到高度 → 内容被裁掉，
+   下面的按钮就"被上面挡住"看不见了）。所以这里给滚动区一个显式高度。 */
+.audit-sheet { max-height: 94vh; padding-bottom: 12rpx; }
+/* 底部那行按钮撤掉后多出来的高度给清单，一屏能多看几条 */
+.audit-body { height: 66vh; margin-top: 12rpx; }
+/* 顶部操作条：标题左、按钮右；窄屏放不下就换行，绝不把按钮挤出屏幕 */
+.audit-top { align-items: flex-start; flex-wrap: wrap; }
+.audit-top-h { flex: 1; min-width: 0; margin-bottom: 0; }
+.audit-top-btns { flex: none; display: flex; align-items: center; justify-content: flex-end;
+  flex-wrap: wrap; gap: 12rpx; margin-left: 12rpx; }
+.audit-top-btns .copy { margin: 0; }
+/* 一键修复做成实心绿，一眼看出是主操作（不是"关闭"那种次要按钮） */
+.copy.fix-all-top { background: #07c160; color: #fff; border-color: #07c160; font-weight: 600; }
+.copy.fix-all-top.busy { background: #ddd; border-color: #ddd; color: #888; }
+.blk-h { margin: 20rpx 0 10rpx; font-size: 29rpx; font-weight: 600; color: #222;
+  border-left: 8rpx solid #07c160; padding-left: 14rpx; }
+.tag { flex: none; margin-left: 10rpx; font-size: 20rpx; color: #8a6d3b;
+  background: #fdf3e2; border-radius: 6rpx; padding: 2rpx 10rpx; }
+/* 「修这条」：inline-block + 独立成行，避免和上下按钮挤在一起看不出来 */
+.fix-one { display: inline-block; margin: 12rpx 0 2rpx; font-size: 25rpx; color: #07c160;
+  background: #fff; border: 2rpx solid #07c160; border-radius: 999rpx; padding: 8rpx 26rpx; }
+.fix-one + .fix-one { margin-left: 12rpx; }
+/* 正在修的那一条：变灰，和旁边"可点"的按钮区分开，一眼看出是哪条在跑 */
+.fix-one.busy { color: #999; border-color: #ddd; background: #f7f7f7; }
+.rowbtn { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
+.opt { margin-top: 14rpx; padding: 16rpx; background: #fafafa; border: 2rpx solid #eee; border-radius: 12rpx; }
+.opt-rec { background: #f2fbf6; border-color: #9fe0bd; }
+.opt-h { display: flex; align-items: center; }
+.opt-t { font-size: 29rpx; font-weight: 600; color: #222; }
+.badge { margin-left: 12rpx; font-size: 22rpx; color: #fff; background: #e64340;
+  border-radius: 999rpx; padding: 4rpx 14rpx; }
+
+/* 体检里查出撞车时的备选书名（与向导页撞车面板同款） */
+.pick { display: flex; align-items: center; margin-top: 10rpx; background: #fff; border: 2rpx solid #f3b7b0; border-radius: 12rpx; padding: 16rpx 18rpx; }
+.pick-main { flex: 1; display: flex; align-items: center; min-width: 0; }
+.pick-badge { flex: none; font-size: 20rpx; color: #fff; background: #e74c3c; border-radius: 6rpx; padding: 2rpx 8rpx; margin-right: 10rpx; }
+.pick-name { font-size: 29rpx; color: #222; font-weight: 600; }
+.pick-go { flex: none; margin-left: 16rpx; font-size: 26rpx; color: #fff; background: #07c160; border-radius: 999rpx; padding: 10rpx 24rpx; }
+
+/* 清单过期提示（稿子改过但还没重新体检） */
+.stale-tip {
+  margin: 8rpx 0;
+  padding: 12rpx 18rpx;
+  font-size: 25rpx;
+  color: #8a6d1f;
+  background: #fff8e1;
+  border: 2rpx solid #ffe08a;
+  border-radius: 10rpx;
+}
+
+/* 「全书重新审一遍」小链接：日常不该点（AI 每次都会找出新的主观意见），
+   所以做成弱化的文字链，跟主操作按钮区分开 */
+.relink {
+  margin-left: 16rpx;
+  color: #576b95;
+  font-size: 25rpx;
+  text-decoration: underline;
+}

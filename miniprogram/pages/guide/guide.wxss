@@ -1,0 +1,12 @@
+/* 复用全局样式（card / btn / ghost / muted / k / row 都在 app.wxss） */
+
+.k { font-size: 24rpx; color: #888; }
+
+/* 笔名候选（AI 一次给 ≥3 个，点选即选中，可换一批） */
+.pickrow { display: flex; flex-wrap: wrap; margin-top: 10rpx; }
+.pickchip {
+  font-size: 26rpx; color: #333; background: #f2f4f7;
+  border: 2rpx solid #e2e6ec; border-radius: 999rpx;
+  padding: 10rpx 24rpx; margin: 0 12rpx 12rpx 0;
+}
+.pickchip.on { background: #e8f8ef; border-color: #07c160; color: #07a352; font-weight: 600; }

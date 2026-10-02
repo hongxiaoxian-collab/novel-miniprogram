@@ -1,0 +1,43 @@
+<view class="card">
+  <view class="card-h">首次引导 · {{platformName}}</view>
+  <view class="muted" style="line-height:1.8">
+    1. 用「{{platformName}}作家助手」App 注册并实名。<br/>
+    2. 定一个笔名 —— 番茄和七猫都要求封面出现「书名 + 笔名」。<br/>
+    3. 顺手把作者简介定下来，作家页与上架资料要用。
+  </view>
+</view>
+
+<!-- ① 笔名：AI 一次给 3 个以上，点选即可，不满意换一批 -->
+<view class="card">
+  <view class="k">① 选个笔名</view>
+  <view class="row" style="margin-top:12rpx">
+    <input value="{{pen}}" bindinput="onPen" maxlength="16" placeholder="也可以自己输入"
+      style="flex:1;border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx;margin-right:12rpx" />
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="margin:0;padding:14rpx 26rpx" bindtap="recPen">{{pens.length ? '🔁 换一批' : '✨ AI 推荐'}}</view>
+  </view>
+  <block wx:if="{{pens.length}}">
+    <view class="muted" style="margin-top:12rpx">点一个选中（每次至少给 3 个，都不满意就再换一批）：</view>
+    <view class="pickrow">
+      <view class="pickchip {{pen===item?'on':''}}" wx:for="{{pens}}" wx:key="*this" data-t="{{item}}" bindtap="usePen">{{item}}</view>
+    </view>
+  </block>
+</view>
+
+<!-- ② 作者简介：可 AI 写、可重写、可自己写 -->
+<view class="card">
+  <view class="k">② 作者简介</view>
+  <textarea value="{{intro}}" bindinput="onIntro" maxlength="300" auto-height
+    placeholder="介绍写作方向 / 文风 / 更新承诺；也可以点下面让 AI 写，不满意再重写"
+    style="width:100%;box-sizing:border-box;border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx;margin-top:12rpx;font-size:26rpx;line-height:1.6" />
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="margin-top:14rpx" bindtap="recIntro">{{intro ? '🔁 不满意，重写一版' : '✨ AI 帮我写'}}</view>
+</view>
+
+<view class="btn" bindtap="confirm">✓ 确认，并关联到我的作品</view>
+<view class="muted" style="margin:10rpx 24rpx 0">
+  <block wx:if="{{novelTitle}}">确认后会同步到《{{novelTitle}}》的笔名与作者简介，封面立刻更新。</block>
+  <block wx:else>确认后记为默认，之后新建的作品与封面都会自动带上。</block>
+</view>
+
+<view class="btn ghost" bindtap="copy" data-text="{{pen}}">只复制笔名</view>
+<view class="btn ghost" bindtap="copy" data-text="{{intro}}">只复制作者简介</view>
+<view class="btn ghost" bindtap="close">我知道了</view>

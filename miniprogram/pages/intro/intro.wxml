@@ -1,0 +1,141 @@
+<view wx:if="{{nov}}">
+  <!-- ① 封面图片（可换款重做） -->
+  <view class="coverwrap"><canvas type="2d" id="coverCanvas" class="cover-canvas"></canvas></view>
+  <view class="row" style="margin:0 24rpx;justify-content:space-between">
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0 8rpx 0 0" bindtap="changeCover">🎨 换构图</view>
+    <view class="btn" style="flex:1;margin:0 0 0 8rpx" bindtap="saveCover">⬇ 存到相册</view>
+  </view>
+  <view class="row" style="margin:14rpx 24rpx 0">
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0" bindtap="redesignCover">{{coverBusy ? '⏳ AI 正在按情节设计…' : (coverPlan ? '🔄 按情节重新设计（换一套）' : '✨ 按情节生成封面')}}</view>
+  </view>
+  <view wx:if="{{coverPlan}}" class="note" style="margin-top:14rpx">
+    <text style="font-weight:600">封面画面：</text>{{coverPlan.scene}}
+    <text wx:if="{{coverPlan.mood}}" class="muted">（{{coverPlan.mood}}）</text>
+  </view>
+  <view class="muted" style="text-align:center;margin-top:10rpx">
+    {{coverPlan ? '封面按这部作品的情节实时生成：场景 / 配色 / 人物造型 / 道具都来自大纲。不满意就「按情节重新设计」换一套，或「换构图」调整排版。' : '这部作品还没有大纲，先用题材模板顶着。定版生成大纲后，点「按情节生成封面」即可按剧情出图。'}}
+    · 导出为平台规格 600×800
+  </view>
+
+  <!-- 没有大纲就没有作品简介：简介/人物/标签都是按大纲写的，先引导去定版 -->
+  <view wx:if="{{!hasBible}}" class="note">
+    这份作品还没有《全书脉络》（大纲 + 分卷时间线）。作品简介、主要人物、标签都必须按大纲生成，
+    所以这里先不显示——否则只会得到一份和正文对不上的简介。先去定版补上大纲。
+  </view>
+  <view wx:if="{{!hasBible}}" class="btn" bindtap="goWizardOutline">📖 去生成大纲（定版）</view>
+  <block wx:elif="{{!ready}}">
+    <view class="note">
+      这份作品还没生成「上架资料包」（作品简介 / 主要人物 / 阅读标签 / 内容标签）。点下面的按钮，AI 会按平台规范一次性生成。
+    </view>
+    <view class="btn" bindtap="genInfo">✨ AI 生成上架资料</view>
+  </block>
+
+  <!-- ② 作品名称 -->
+  <view class="card">
+    <view class="row"><text class="k">作品名称</text><view class="copy {{platform==='qimao'?'blue':''}}" bindtap="copy" data-text="{{nov.title}}">复制</view></view>
+    <view class="v big">{{nov.title}}</view>
+  </view>
+
+  <!-- ②-2 作者笔名（番茄/七猫都要求封面含书名+笔名） -->
+  <view class="card">
+    <view class="k">作者笔名<text class="muted">（封面必须含书名 + 笔名，否则平台审核驳回）</text></view>
+    <view class="row" style="margin-top:12rpx">
+      <input value="{{penEdit}}" bindinput="onPen" maxlength="16" placeholder="填你的笔名"
+        style="flex:1;border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx;margin-right:12rpx" />
+      <view class="copy {{platform==='qimao'?'blue':''}}" bindtap="savePen">保存</view>
+    </view>
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="margin-top:14rpx" bindtap="recPen">{{penList.length ? '🔁 换一批笔名' : '✨ AI 推荐笔名（一次给 3 个以上）'}}</view>
+    <block wx:if="{{penList.length}}">
+      <view class="muted" style="margin-top:12rpx">点一个直接用（自动保存，封面立刻带上）：</view>
+      <view class="pickrow">
+        <view class="pickchip {{penEdit===item?'on':''}}" wx:for="{{penList}}" wx:key="*this" data-t="{{item}}" bindtap="usePen">{{item}}</view>
+      </view>
+      <view class="muted">都不满意就再点一次「换一批」，不会和上面重复。</view>
+    </block>
+    <view class="muted" style="margin-top:10rpx">保存后会记成默认笔名，之后新建的作品和封面都自动带上（首页「我的笔名」也能改）。</view>
+  </view>
+
+  <!-- ②-3 作者简介（AI 代写 / 重写 / 自己写） -->
+  <view class="card">
+    <view class="row"><text class="k">作者简介</text><view class="copy {{platform==='qimao'?'blue':''}}" bindtap="copy" data-text="{{introEdit}}">复制</view></view>
+    <textarea value="{{introEdit}}" bindinput="onIntro" maxlength="300" auto-height
+      placeholder="介绍你的写作方向 / 文风 / 更新承诺；也可以点下面让 AI 写，或重写一版"
+      style="width:100%;box-sizing:border-box;border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx;margin-top:12rpx;font-size:26rpx;line-height:1.6" />
+    <view class="row" style="margin-top:12rpx">
+      <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0" bindtap="recIntro">{{introEdit ? '🔁 不满意，重写一版' : '✨ AI 帮我写'}}</view>
+      <view class="copy {{platform==='qimao'?'blue':''}}" style="margin-left:12rpx" bindtap="saveIntro">保存</view>
+    </view>
+    <view class="muted" style="margin-top:10rpx">保存后会记成默认作者简介，作家页和上架资料都会带上。</view>
+  </view>
+
+  <!-- ③④ 作品简介 + 主角名（只在有全套上架资料时显示，避免展示与大纲脱节的旧简介） -->
+  <block wx:if="{{ready}}">
+    <view class="card">
+      <view class="row"><text class="k">作品简介</text><view class="copy {{platform==='qimao'?'blue':''}}" bindtap="copy" data-text="{{info.intro}}">复制</view></view>
+      <view class="v">{{info.intro}}</view>
+    </view>
+
+    <view class="card">
+      <view class="k">主要人物（每个名字可单独复制）</view>
+      <view class="prow" wx:for="{{info.protagonists}}" wx:key="name">
+        <view class="pinfo">
+          <text class="pname">{{item.name}}</text>
+          <text class="prole">{{item.role}}</text>
+          <text class="pdesc">{{item.desc}}</text>
+        </view>
+        <view class="copy {{platform==='qimao'?'blue':''}}" bindtap="copy" data-text="{{item.name}}">复制</view>
+      </view>
+    </view>
+  </block>
+
+  <!-- ⑤ 签约模式 / 连载模式 -->
+  <view class="card">
+    <view class="kv"><text class="k">签约模式</text><text class="v">{{info.contractMode}}</text></view>
+    <view class="divider"></view>
+    <view class="kv"><text class="k">连载模式</text><text class="v">{{info.serialMode || '连载中'}}</text></view>
+  </view>
+
+  <!-- ⑥ 目标读者（规划时已定，直接给出） -->
+  <view class="card">
+    <view class="k">目标读者</view>
+    <view class="tagrow"><view class="chip on {{platform==='qimao'?'blue':''}}">{{nov.targetReader || '未定'}}</view></view>
+    <view class="muted" style="margin-top:8rpx">新建作品规划时已确定，发布时直接照填</view>
+  </view>
+
+  <block wx:if="{{ready}}">
+    <!-- ⑦ 阅读标签 -->
+    <view class="card">
+      <view class="k">阅读标签<text class="muted">（番茄：主分类必选 1 个，主题/角色/情节各 1 个）</text></view>
+      <view class="tagrow">
+        <view class="chip on {{platform==='qimao'?'blue':''}}" wx:for="{{readingList}}" wx:key="label">{{item.label}} · {{item.value}}</view>
+      </view>
+    </view>
+
+    <!-- ⑧ 内容标签 -->
+    <view class="card">
+      <view class="k">内容标签<text class="muted">（番茄：情节 / 情感 / 人设 / 世界观，各 1 个）</text></view>
+      <view class="tagrow">
+        <view class="chip on {{platform==='qimao'?'blue':''}}" wx:for="{{contentList}}" wx:key="label">{{item.label}} · {{item.value}}</view>
+      </view>
+    </view>
+
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="copyAll">📋 一键复制全部资料</view>
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="genInfo">↻ 重新生成上架资料</view>
+  </block>
+
+  <view class="divider"></view>
+  <view wx:if="{{nov.bibleStatus!=='done'}}" style="background:#fff8e6;border:2rpx solid #ffe08a;color:#8a6d00;font-size:25rpx;padding:16rpx 20rpx;border-radius:12rpx;margin:0 24rpx;line-height:1.6">
+    这份作品还没有生成「全书脉络 + 分卷时间线」，所以下面没有章节可写。先去把大纲补上。
+  </view>
+  <view wx:if="{{nov.bibleStatus==='done'}}" class="btn" bindtap="goBible">查看全书脉络</view>
+  <view wx:else class="btn" bindtap="goWizardOutline">📖 去生成大纲 / 全书脉络</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="goChapters">📑 章节目录</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="goWrite">继续写 / 续更</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="goAudit">🩺 一键体检（查矛盾 / 查撞车 可选）<text wx:if="{{openBadge}}" class="badge">⚠️ {{openBadge}} 处未修</text></view>
+
+  <view class="divider"></view>
+  <view class="label">整部调整（审核相关）</view>
+  <view class="btn ghost" bindtap="adjustPre">📝 未审核·调整整部小说</view>
+  <view class="btn ghost" style="color:#e53935;border-color:#e53935" bindtap="adjustFailed">⚠️ 审核未过·重新调整整部小说</view>
+  <view class="btn ghost del {{platform==='qimao'?'blue':''}}" bindtap="delNovel">🗑 删除作品</view>
+</view>

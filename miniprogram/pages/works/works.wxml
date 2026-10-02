@@ -1,0 +1,23 @@
+<view class="top" style="background:{{platform==='qimao' ? '#2b6cff' : '#07c160'}}">
+  <platform-switch platform="{{platform}}" bind:change="onPlatformChange" />
+</view>
+
+<view class="card">
+  <view class="row"><view class="card-h">📚 我的作品（{{platform==='qimao'?'七猫':'番茄'}}）</view><view class="muted">{{novels.length}} 本</view></view>
+  <block wx:for="{{novels}}" wx:key="id">
+    <view class="card" style="margin-top:16rpx" bindtap="goIntro" data-nov="{{item}}">
+      <view class="row"><text style="font-weight:600">{{item.title}}</text><view class="copy" catchtap="exportWord" data-nov="{{item}}">📄 Word 导出</view></view>
+      <view class="muted">{{item.targetReader}} · {{item.contractStatus==='signed'?'已签约':'签约中'}} · 已写 {{item._count.chapters}} 章 · {{item.bibleStatus==='done'?'已生成大纲':'⚠ 待生成大纲'}}</view>
+      <view class="row" style="margin-top:12rpx;justify-content:flex-end">
+        <view class="del" catchtap="delNovel" data-id="{{item.id}}" data-title="{{item.title}}">🗑 删除</view>
+      </view>
+    </view>
+  </block>
+  <view wx:if="{{novels.length===0}}" class="muted" style="text-align:center;padding:20rpx">还没有作品，点下面新建</view>
+</view>
+
+<view class="btn" bindtap="goWizard">＋ 新建小说</view>
+<view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="editPen">
+  ✍️ 我的笔名：{{pen || '未设置（点此确认）'}}
+</view>
+<view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="goGuide">首次引导 / 笔名推荐</view>

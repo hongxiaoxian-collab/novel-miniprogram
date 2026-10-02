@@ -1,0 +1,49 @@
+.top { padding: 20rpx 24rpx; }
+.steps { display: flex; gap: 12rpx; padding: 20rpx 60rpx; }
+.dot { flex: 1; height: 8rpx; border-radius: 4rpx; background: #d8d8d8; }
+.dot.on { background: #07c160; }
+.rec { margin-top: 16rpx; background: #f4f8ff; border: 2rpx solid #cfe0ff; border-radius: 12rpx; padding: 16rpx; }
+
+/* 恢复上次未走完的进度提示 */
+.draft-tip { margin: 0 24rpx; background: #eafaf1; border: 2rpx solid #b7e6cc; color: #1e824c; font-size: 25rpx; padding: 14rpx 20rpx; border-radius: 12rpx; line-height: 1.5; }
+
+/* 作品名：可编辑 */
+.title-edit { flex: 1; min-width: 0; font-size: 32rpx; font-weight: 600; color: #222; border: 2rpx solid #07c160; border-radius: 10rpx; padding: 12rpx 14rpx; background: #f7fffb; }
+
+/* 撞车检测报告 */
+.dup { margin-top: 14rpx; border-radius: 12rpx; padding: 16rpx; border: 2rpx solid #ddd; background: #fafafa; }
+.dup-high { border-color: #f3b7b0; background: #fdf3f2; }
+.dup-mid { border-color: #f0d9a8; background: #fffaf0; }
+.dup-low { border-color: #c3e6cb; background: #f3fbf5; }
+.dup-tag { font-weight: 600; font-size: 28rpx; color: #333; }
+.dup-high .dup-tag { color: #c0392b; }
+.dup-mid .dup-tag { color: #a8730d; }
+.dup-low .dup-tag { color: #1e824c; }
+.dup-note { font-size: 26rpx; color: #666; margin-top: 6rpx; }
+.dup-k { font-size: 25rpx; color: #888; margin: 12rpx 0 4rpx; }
+.dup-done { margin-top: 12rpx; font-size: 26rpx; color: #07c160; font-weight: 600; }
+
+/* 撞车处置面板：分步引导，每步一条分隔线，避免一大段文字糊在一起 */
+.dup-step { font-size: 26rpx; font-weight: 600; color: #444; margin: 18rpx 0 8rpx; padding-top: 16rpx; border-top: 2rpx dashed rgba(0,0,0,.08); }
+.dup-high .dup-step:first-of-type { border-top: none; padding-top: 0; }
+/* 书名候选：一行一个，左名字右按钮，推荐项置顶并带角标 */
+.pick { display: flex; align-items: center; margin-top: 10rpx; background: #fff; border: 2rpx solid #f3b7b0; border-radius: 12rpx; padding: 16rpx 18rpx; }
+.pick-main { flex: 1; display: flex; align-items: center; min-width: 0; }
+.pick-badge { flex: none; font-size: 20rpx; color: #fff; background: #e74c3c; border-radius: 6rpx; padding: 2rpx 8rpx; margin-right: 10rpx; }
+.pick-name { font-size: 29rpx; color: #222; font-weight: 600; }
+.pick-go { flex: none; margin-left: 16rpx; font-size: 26rpx; color: #fff; background: #07c160; border-radius: 999rpx; padding: 10rpx 24rpx; }
+
+/* 定版任务进度 */
+.task { margin-top: 16rpx; border-top: 2rpx dashed #e0e0e0; padding-top: 14rpx; }
+.task-h { font-size: 26rpx; color: #888; margin-bottom: 8rpx; }
+.task-row { display: flex; align-items: flex-start; padding: 6rpx 0; }
+.task-ico { width: 40rpx; flex-shrink: 0; font-size: 26rpx; color: #bbb; }
+.task-ico.done { color: #07c160; }
+.task-ico.failed { color: #e64340; }
+.task-label { font-size: 27rpx; color: #333; }
+.task-note { font-size: 24rpx; color: #999; margin-left: 12rpx; }
+.task-err { font-size: 25rpx; color: #e64340; margin-top: 8rpx; }
+
+/* 候选书名是否已通过联网预检 */
+.dup-ok { flex: none; margin-left: 10rpx; font-size: 20rpx; color: #fff; background: #07c160; border-radius: 6rpx; padding: 2rpx 10rpx; }
+.dup-risk { flex: none; margin-left: 10rpx; font-size: 20rpx; color: #fff; background: #e6a23c; border-radius: 6rpx; padding: 2rpx 10rpx; }

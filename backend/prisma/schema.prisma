@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 作品（一本小说）
+model Novel {
+  id            String   @id @default(cuid())
+  platform      String   // 'fanqie' | 'qimao'
+  title         String
+  penName       String?  // 笔名
+  authorIntro   String?  // 作家简介
+  coverImage    String?  // AI 生成封面的 URL 或 base64
+  genre         String?  // 题材（都市/玄幻/重生/机械…）
+  intro         String?  // 作品简介（上架用，180-220 字）
+  protagonists String?  // JSON：主要人物 [{name,role,desc}]
+  targetReader  String?  // 男频/女频（七猫：男生/女生）
+  contractStatus String  @default("signing") // signing(签约中) | signed(已签约)
+  contractMode  String?  // 签约模式
+  serialMode    String?  // 连载模式（连载中/日更等）
+  tags          String?  // JSON：{reading:{主分类,主题,角色,情节}, content:{情节,情感,人设,世界观}}
+  sellPoint     String?  // 一句话卖点
+  outline       String?  // 大纲文本
+  bible         String?  // JSON：全书脉络（故事圣经）完整结构
+  bibleStatus   String   @default("none") // none | generating | done | failed
+  chapterWords  Int      @default(2000) // 每章目标字数（用户可改，默认 2000）
+  // ---- 定版任务（异步，前端轮询进度）----
+  taskStage     String?  // running | done | failed（空闲为 null）
+  taskLog       String?  // JSON：[{stage,label,status,error}]
+  taskError     String?  // 失败原因
+  dupReport     String?  // JSON：番茄/七猫撞车检测报告
+  dupAccepted   String?  // 作者已选定的书名（重出大纲时锁死，不让 AI 改回去）
+  dupCheckedAt  DateTime? // 上次联网查重的时间
+  dupCheckedKey String?  // 查重时的内容指纹（书名|大纲长度|脉络长度）：指纹没变就复用，避免"上面说没撞、定版说撞了"
+  canon         String?  // JSON：事实台账（累积快照）。写稿时强制注入，防止主角改名 / 时间线错乱 / 设定漂移
+  // ---- 通用后台任务（体检 / 自动修复 / 续更 / 出大纲；退出小程序也继续跑，前端轮询进度）----
+  jobKind       String?  // audit | fix | chapter | outline
+  jobStage      String?  // running | done | failed（空闲为 null）
+  jobLog        String?  // JSON：[{key,label,status,note,error}]
+  jobError      String?
+  jobResult     String?  // JSON：任务产出（如出大纲后的 {title,sellPoint,outline,staleCount}）
+  jobAt         DateTime? // 任务心跳时间：服务重启后旧任务的 stage 会永远停在 running，靠它判定"孤儿任务"  // 失败原因
+  auditJson     String?  // JSON：最近一次体检结果（含硬伤与 AI 语义问题）
+  auditKey      String?  // 体检指纹：章节数+最新章id+更新时间+大纲版本。稿子没变就直接复用上次结果
+  resolvedQuotes String? // JSON：已经修掉的矛盾指纹（normQuote）。重算体检时跳过，避免"修完冒出同一批"
+  renamedJson   String? // JSON：{"旧写法":"新写法"}。人名/称谓统一过的映射 —— 全书一次改干净，残留还能硬扫出来 0 AI 修掉
+  editMarksJson String? // JSON：最近一轮"定点修复"改过的句子 [{ch,text}]。收敛式复检只审这些改动处，不再全书重新找茬
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  chapters      Chapter[]
+}
+
+// 章节
+/// 真实联网检索到的在榜作品（本地"撞车比对库"）：查重不再靠 AI 凭印象编作品名
+model HotBook {
+  id        String   @id @default(cuid())
+  title     String
+  snippet   String   @default("")   // 搜索结果里的真实原文摘录（给作者核对用）
+  url       String   @default("")
+  source    String   @default("bing")
+  query     String   @default("")   // 当初用哪个词搜到的
+  hits      Int      @default(1)    // 被检索到的次数
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Chapter {
+  id        String   @id @default(cuid())
+  novelId   String
+  novel     Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  volume    Int      @default(1) // 卷号（卷一/卷二/卷三…）
+  order     Int      // 章序号（全局递增）
+  title     String
+  content   String?  // 正文
+  summary   String?  // 滚动摘要（带入下章防断链）
+  canon     String?  // JSON：本章更新的事实台账（增量，合并进 Novel.canon）
+  stale     Boolean  @default(false) // 大纲/设定已变更 → 旧章节作废（不删数据，仅隐藏，避免两套设定混装）
+  status    String   @default("draft") // draft | done
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([novelId])
+}

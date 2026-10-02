@@ -1,0 +1,244 @@
+<wxs src="../../utils/chtitle.wxs" module="t" />
+
+<!-- 统一进度条：体检 / 定版 / 续写 / 撞车修复 都走这一根 -->
+<view wx:if="{{prog && prog.show}}" class="pcard">
+  <view class="pcard-h">
+    <text class="pcard-t">{{prog.title}}</text>
+    <text class="pcard-n">{{prog.pct}}%{{prog.total ? '（' + prog.done + '/' + prog.total + '）' : ''}}</text>
+  </view>
+  <view class="pbar"><view class="pbar-in {{platform==='qimao'?'blue':''}}" style="width:{{prog.pct}}%"></view></view>
+  <view wx:if="{{prog.current}}" class="pcard-cur">正在：{{prog.current}}</view>
+  <view wx:for="{{prog.steps}}" wx:key="key" class="pcard-step {{item.status}}">
+    <text class="ico">{{item.status==='done'?'✓':(item.status==='running'?'⏳':(item.status==='failed'?'✗':'○'))}}</text>
+    <text>{{item.label}}</text>
+  </view>
+  <view class="pcard-hint">任务在服务端跑，退出小程序也不会中断，回来接着看进度。</view>
+</view>
+
+<view wx:if="{{cur}}">
+  <view class="card">
+    <view class="row">
+      <view class="card-h">{{t.ch(cur.order, cur.title)}}</view>
+      <view class="copy {{platform==='qimao'?'blue':''}}" bindtap="openDir">📑 章节目录</view>
+    </view>
+    <view class="muted">{{novelTitle}} · 共 {{flat.length}} 章{{cur.order===flat.length?'（这是最新章节，点下面继续写下一章）':''}}</view>
+  </view>
+
+  <view class="card">
+    <view class="row"><text>章名</text><view class="copy {{platform==='qimao'?'blue':''}}" bindtap="copyName">复制章名</view></view>
+    <input value="{{t.chNo(cur.title)}}" disabled="{{!editing}}" placeholder="章名（不用带「第几章」）" style="font-weight:600;margin-top:8rpx" />
+
+    <view class="row" style="margin-top:16rpx"><text>正文</text><view class="copy {{platform==='qimao'?'blue':''}}" bindtap="copyContent">复制正文</view></view>
+    <textarea value="{{cur.content}}" bindinput="onContent" disabled="{{!editing}}" auto-height maxlength="-1"
+      style="margin-top:8rpx;font-size:28rpx;line-height:1.8;min-height:400rpx" placeholder="暂无正文" />
+  </view>
+
+  <view class="row" style="margin:0 24rpx">
+    <button class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0 8rpx 0 0" bindtap="prev">← 上一章</button>
+    <button class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0 0 0 8rpx" bindtap="next">下一章 →</button>
+  </view>
+  <view wx:if="{{editing}}" class="btn" bindtap="save">保存修改</view>
+  <view wx:else class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="save">✎ 编辑本章</view>
+  <view class="btn" bindtap="pickNextCount">{{busy && jobText ? '⏳ ' + jobText : '✍️ 续写第 ' + (flat.length + 1) + ' 章（可一次续更 3/5/10 章）'}}</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="openRewrite">↺ 重写本章（填原因）</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="pickAudit">
+    {{auditing ? '⏳ 体检中…' : '🩺 一键体检（点这里选：查矛盾 / 查撞车 / 都查）'}}<text wx:if="{{openBadge}}" class="badge">还有 {{openBadge}} 处没修</text>
+  </view>
+  <view wx:if="{{auditing && auditText}}" class="muted" style="text-align:center;margin:8rpx 0">{{auditText}}</view>
+
+  <!-- 上次体检遗留的问题：退出小程序再进来也还在，点开直接看清单 -->
+  <view wx:if="{{openBadge && !showAudit}}" class="btn ghost" style="color:#e6a23c;border-color:#e6a23c" bindtap="openAudit">
+    ⚠️ 上次体检还有 {{openBadge}} 处矛盾没修，点这里查看清单
+  </view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="goBot">🤖 去扣子自由写稿（答疑 / 单章改写）</view>
+</view>
+
+<!-- 重写原因弹窗 -->
+<view wx:if="{{showRewrite}}" class="mask" bindtap="closeRewrite">
+  <view class="sheet" catchtap="noop">
+    <view class="card-h">重写本章</view>
+    <view class="muted" style="margin:8rpx 0">填写重写原因 / 你的意图，AI 据此改写这一章（保留全书脉络一致）。</view>
+    <textarea value="{{rewriteReason}}" bindinput="onRewriteReason" auto-height maxlength="-1" placeholder="例如：节奏太慢，男主性格再狠一点，加一段打脸" style="border:2rpx solid #ddd;border-radius:12rpx;padding:16rpx;font-size:28rpx;min-height:200rpx" />
+    <view class="btn" bindtap="doRewrite">确定重写</view>
+    <view class="btn ghost" bindtap="closeRewrite">取消</view>
+  </view>
+</view>
+
+<view wx:else>
+  <view class="card">
+    <view class="muted" style="text-align:center;padding:30rpx 20rpx;line-height:1.7">
+      《{{novelTitle}}》还没有章节。{{bibleStatus==='done' ? '全书脉络已就绪，点下面按钮写出黄金 1-3 章。' : '先点下面按钮生成全书脉络和黄金 1-3 章，之后就能续更了。'}}
+    </view>
+  </view>
+  <view class="btn" bindtap="genAll">⚡ 生成全书脉络 + 黄金 1-3 章</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="goOutline">📖 返回生成大纲 / 调整大纲</view>
+  <view wx:if="{{steps.length}}" class="card">
+    <view class="card-h">生成进度</view>
+    <view class="task-row" wx:for="{{steps}}" wx:key="stage">
+      <text class="task-ico {{item.status}}">{{item.status==='done'?'✓':(item.status==='running'?'⏳':(item.status==='failed'?'✗':'○'))}}</text>
+      <text class="task-label">{{item.label}}</text>
+      <text class="task-note">{{item.note || item.error || ''}}</text>
+    </view>
+    <view wx:if="{{taskText}}" class="muted" style="margin-top:8rpx">当前：{{taskText}}</view>
+  </view>
+</view>
+
+<!-- ==================== 体检结果（全屏层）====================
+     顺序严格按作者的验收习惯：① 先列矛盾和撞车点（好核对）② 再给修复方案 ③ 点了「修复」才动手 -->
+<view wx:if="{{showAudit}}" class="mask" bindtap="closeAudit">
+  <view class="sheet audit-sheet" catchtap="noop">
+    <!--
+      顶部操作条：作者不想为了点一次修复/重体检滚到清单最底下去找按钮，所以全提到标题这一行。
+      flex-wrap：窄屏放不下时自动换行，绝不让按钮被挤出屏幕。
+      fixableCount 为 0 时不显示「一键修复」（避免点了只弹一句"没有可修复的问题"）。
+    -->
+    <view class="row audit-top">
+      <view class="card-h audit-top-h">🩺 体检结果 · {{auditResult.score}} 分</view>
+      <view class="audit-top-btns">
+        <view wx:if="{{auditResult.fixableCount}}" class="copy fix-all-top {{fixBusy?'busy':''}}" bindtap="fixAll">
+          {{fixBusy ? '⏳ 修复中…' : '🔧 一键修复（' + auditResult.fixableCount + '）'}}
+        </view>
+        <view class="copy" bindtap="reAudit">{{auditing ? '⏳ 体检中…' : '🔄 重新体检'}}</view>
+        <view class="copy" bindtap="closeAudit">关闭</view>
+      </view>
+    </view>
+    <!-- 360 式即时反馈：修一条，这行当场 -1 处、+N 分 -->
+    <view wx:if="{{auditResult.resolvedCount}}" class="muted" style="color:#07a352;font-weight:600">
+      本次已清掉 {{auditResult.resolvedCount}} 处 · 还剩 {{auditResult.issues.length}} 处 · 当前 {{auditResult.score}} 分
+    </view>
+    <!--
+      总数要一眼看明白：体检 N 处 = 可自动修 M 处 + 需要你拍板 K 处。
+      以前只显示"6 处"，点一键修复却只修 3 处，作者会以为"修漏了"。
+    -->
+    <view class="muted" style="margin:8rpx 0">
+      共 {{auditResult.issues.length}} 处 = <text style="color:#07c160;font-weight:600">可自动修 {{auditResult.fixableCount}}</text>
+      <text wx:if="{{auditResult.human.length}}"> + <text style="color:#e6a23c;font-weight:600">需你拍板 {{auditResult.human.length}}</text></text>
+      ｜已核对 {{auditResult.checkedChapters}} 章｜硬伤 {{auditResult.hardCount}} · AI 审校 {{auditResult.aiCount}}
+    </view>
+    <view class="muted" style="margin:4rpx 0 8rpx">{{auditResult.summary}}</view>
+    <!--
+      收敛式复检的说明。为什么要写出来：以前每次「重新体检」都是全书重新找茬，
+      AI 换一批说法 → 又冒出一批新的，作者以为"永远修不完"。现在默认只做复检。
+    -->
+    <view class="muted" style="margin:4rpx 0">
+      <text wx:if="{{auditResult.incremental}}" style="color:#07a352">🔄 本次为复检：核验旧清单 + 只复审刚改动过的地方，不会凭空冒出新的一批。</text>
+      <text wx:else style="color:#e6a23c">🔍 本次为全书重审（AI 每次都会找出一些新的可优化意见，条数变多属正常）。</text>
+      <text class="relink" bindtap="reAuditAll">全书重新审一遍 ›</text>
+    </view>
+    <!-- 稿子改过但还没重算：这份清单是旧的，明确说出来，别让作者拿旧清单反复修 -->
+    <view wx:if="{{auditResult.stale}}" class="stale-tip">⚠ 稿子改过了，这份清单是旧的。点上面「🔄 重新体检」重新算一遍。</view>
+    <view wx:elif="{{auditResult.cached}}" class="muted" style="color:#999">稿子没改动，沿用上次清单。</view>
+
+    <scroll-view scroll-y enhanced show-scrollbar="{{true}}" bounces class="audit-body">
+      <!-- ① 矛盾点：可自动修复的（程序能确定改法，逐条能单独修） -->
+      <view class="blk-h">① 矛盾点 · 小程序可自动修复（{{auditResult.autoFix ? auditResult.autoFix.length : 0}}）</view>
+      <view wx:if="{{!auditResult.autoFix || !auditResult.autoFix.length}}" class="muted" style="color:#07a352">✓ 没有需要自动修复的矛盾</view>
+      <view wx:for="{{auditResult.autoFix}}" wx:key="index" class="issue">
+        <view class="issue-h">
+          <text class="issue-lv {{item.level==='高'?'lv-high':(item.level==='中'?'lv-mid':'lv-low')}}">{{item.level}}</text>
+          <text>{{item.type}}</text>
+          <text class="muted">· 第{{item.chapter}}章</text>
+          <text wx:if="{{item.hard}}" class="tag">硬伤</text>
+        </view>
+        <view class="issue-q">“{{item.quote}}”</view>
+        <view class="muted">问题：{{item.why}}</view>
+        <view class="issue-fix">改法：{{item.fix}}</view>
+        <!-- 只有"真正在修的那一条"显示修复中：以前整列共用一个开关，点第3条时第1/2/4条也一起变成修复中，卡住就再也点不动 -->
+        <view class="fix-one {{fixingIdx===index?'busy':''}}" data-i="{{index}}" bindtap="fixOne">
+          {{fixingIdx===index ? '⏳ 修复中…' : (fixBusy ? '批量修复中，稍等' : '修这条（+' + (item.level==='高'?8:(item.level==='中'?4:2)) + '分）')}}
+        </view>
+      </view>
+      <!-- 「一键修复」已提到顶部操作条，这里不再重复放一个（同一功能两个按钮会让人犹豫点哪个） -->
+      <view wx:if="{{fixBusy && fixText}}" class="muted" style="text-align:center;margin:8rpx 0">进度：{{fixText}}（可退出小程序，服务端继续跑）</view>
+
+      <!-- ② 矛盾点：需要你拍板的（重生模式 / 书名这类没有唯一答案；以及 AI 只给描述、定位不到原句的） -->
+      <block wx:if="{{auditResult.human && auditResult.human.length}}">
+        <view class="blk-h">② 矛盾点 · 需要你拍板（{{auditResult.human.length}}）</view>
+        <view class="muted" style="color:#e6a23c">这类问题没有唯一正确改法（或 AI 只给了一句描述、正文里没有对应原句，程序定位不到），小程序不敢乱改。</view>
+        <view wx:for="{{auditResult.human}}" wx:key="index" class="issue">
+          <view class="issue-h">
+            <text class="issue-lv {{item.level==='高'?'lv-high':(item.level==='中'?'lv-mid':'lv-low')}}">{{item.level}}</text>
+            <text>{{item.type}}</text>
+            <text wx:if="{{item.chapter}}" class="muted">· 第{{item.chapter}}章</text>
+            <text wx:if="{{item.unlocatable}}" class="issue-lv lv-low">无原句</text>
+          </view>
+          <view class="issue-q">“{{item.quote}}”</view>
+          <view class="muted">问题：{{item.why}}</view>
+          <view class="issue-fix">改法：{{item.fix}}</view>
+        </view>
+      </block>
+
+      <!-- ③ 撞车点（查重）：列出撞了谁 + 3 个备选书名 -->
+      <block wx:if="{{auditResult.dup}}">
+        <view class="blk-h">③ 撞车点（查重）</view>
+        <view class="issue-h">
+          <text class="issue-lv {{auditResult.dup.risk==='low'?'lv-low':'lv-high'}}">查重</text>
+          <text>{{auditResult.dup.risk==='high'?'严重撞车':(auditResult.dup.risk==='mid'?'存在相似':'未发现明显撞车')}}</text>
+        </view>
+        <view class="muted">{{auditResult.dup.riskNote}}</view>
+        <!-- 只查矛盾时撞车结论是沿用上次的，必须写明，别让作者以为是刚查的 -->
+        <view wx:if="{{auditResult.dup.kept}}" class="muted" style="color:#e6a23c">（本次只查了矛盾，这是上一次查重的结论；想重查就点「一键体检」选「只查撞车」）</view>
+        <view wx:for="{{auditResult.dup.matches}}" wx:key="title" class="muted">· 《{{item.title}}》（{{item.platform}} · {{item.type}} · 相似 {{item.similarity}}）：{{item.why}}</view>
+        <block wx:if="{{auditResult.dup.risk!=='low'}}">
+          <view class="muted" style="margin-top:12rpx;color:#e6a23c">
+            下面每个名字连同配套剧情都已经联网预检过（选一个 → 自动改名并按差异化剧情重出大纲）：
+          </view>
+          <block wx:for="{{auditResult.dup.picks}}" wx:key="title">
+            <view class="pick">
+              <view class="pick-main">
+                <text wx:if="{{index===0}}" class="pick-badge">推荐</text>
+                <text class="pick-name">{{item.title}}</text>
+                <text wx:if="{{item.risk==='low'}}" class="tag" style="margin-left:10rpx">已预检·不撞车</text>
+                <text wx:elif="{{item.risk}}" class="tag" style="margin-left:10rpx">仍可能撞车</text>
+              </view>
+              <view class="pick-go" data-t="{{item.title}}" data-p="{{item.plot}}" bindtap="applyDupTitle">用这个</view>
+            </view>
+            <view wx:if="{{item.note}}" class="muted" style="margin:6rpx 0 0 8rpx">预检：{{item.note}}</view>
+            <view wx:if="{{item.plot}}" class="issue-fix" style="margin:0 0 8rpx 8rpx">配套剧情：{{item.plot}}</view>
+          </block>
+          <view class="btn ghost" style="margin-top:12rpx" bindtap="moreTitles">🔄 换一批（只给不撞车的）</view>
+          <view wx:if="{{!auditResult.dup.picks.length}}" class="muted" style="color:#e64340">
+            连换几批都没通过防撞预检（题材命名太拥挤）。建议回向导「换题材重做」，或再试一批。
+          </view>
+          <view wx:if="{{auditResult.dup.plotAdvice}}" class="issue-fix">整体差异化方向：{{auditResult.dup.plotAdvice}}</view>
+        </block>
+      </block>
+
+      <!-- ④ 修复方案：AI 给 2-3 个方向，标明推荐与理由，作者点选后才动手 -->
+      <block wx:if="{{auditResult.options && auditResult.options.length}}">
+        <view class="blk-h">④ 修复方案（选一个，点了才修）</view>
+        <view wx:for="{{auditResult.options}}" wx:key="title" class="opt {{item.recommend?'opt-rec':''}}">
+          <view class="opt-h">
+            <text wx:if="{{item.recommend}}" class="pick-badge">推荐</text>
+            <text class="opt-t">{{item.title}}</text>
+          </view>
+          <view class="muted">怎么改：{{item.detail}}</view>
+          <view class="issue-fix">理由：{{item.reason}}</view>
+          <view class="fix-one {{fixBusy?'busy':''}}" data-opinion="{{item.title + '：' + item.detail}}" bindtap="fixAll">{{fixBusy ? '⏳ 修复中…' : '按此方案修复'}}</view>
+        </view>
+      </block>
+
+      <view wx:if="{{auditResult.noAxis}}" class="btn ghost" style="margin-top:16rpx;color:#faad14;border-color:#faad14" bindtap="goReoutline">📖 先去重新定版，补上全书脉络与分卷时间线</view>
+    </scroll-view>
+
+    <!-- 底部原来那行「重新体检 / 先不改，返回」已去掉：两个功能都在顶部操作条（重新体检 / 关闭） -->
+  </view>
+</view>
+
+<!-- 章节目录（按卷） -->
+<view wx:if="{{showDir}}" class="mask" bindtap="closeDir">
+  <view class="sheet" catchtap="noop">
+    <view class="row"><view class="card-h">📑 章节目录</view><view class="copy" bindtap="closeDir">关闭</view></view>
+    <view class="muted" style="margin:8rpx 0">点章节跳转；AI 续写会读取此目录防重复/断链</view>
+    <scroll-view scroll-y style="max-height:60vh">
+      <block wx:for="{{volumes}}" wx:key="volume" wx:for-item="vol">
+        <view class="vol">📕 {{vol.volume}} 卷（{{vol.chapters.length}} 章）</view>
+        <block wx:for="{{vol.chapters}}" wx:key="id" wx:for-item="ch">
+          <view class="ch {{ch.id===cur.id?'cur':''}}" data-ch="{{ch}}" bindtap="selectChapter">
+            {{t.ch(ch.order, ch.title)}}
+          </view>
+        </block>
+      </block>
+    </scroll-view>
+  </view>
+</view>

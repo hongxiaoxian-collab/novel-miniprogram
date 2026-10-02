@@ -1,0 +1,38 @@
+# 依赖
+node_modules/
+*/node_modules/
+
+# 构建产物
+backend/dist/
+dist/
+*.tsbuildinfo
+
+# 本地数据库与备份（数据不进代码仓）
+backend/prisma/*.db
+backend/prisma/*.db-journal
+backend/prisma/*.db-wal
+backend/prisma/*.db-shm
+*.sqlite
+*.sqlite3
+
+# 环境变量 / 密钥
+.env
+.env.local
+.env.*.local
+
+# 日志
+*.log
+logs/
+backend/logs/
+nohup.out
+
+# 临时验证产物（脚本跑出来的 json / 下载的包）
+backend/scripts/*.json
+backend/scripts/*.zip
+backend/scripts/tmp/
+*.tmp
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+nul

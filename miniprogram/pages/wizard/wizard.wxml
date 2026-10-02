@@ -1,0 +1,235 @@
+<!-- 数组包含判断（WXML 表达式不支持 indexOf，用 wxs） -->
+<wxs module="u">
+module.exports.has = function (arr, v) {
+  if (!arr) return false;
+  for (var i = 0; i < arr.length; i++) { if (arr[i] === v) { return true; } }
+  return false;
+};
+</wxs>
+
+<view class="top" style="background:{{platform==='qimao' ? '#2b6cff' : '#07c160'}}">
+  <platform-switch platform="{{platform}}" bind:change="onPlatformChange" />
+</view>
+
+<!-- 统一进度条：定版 / 出大纲 / 撞车修复 都走这一根 -->
+<view wx:if="{{prog && prog.show}}" class="pcard">
+  <view class="pcard-h">
+    <text class="pcard-t">{{prog.title}}</text>
+    <text class="pcard-n">{{prog.pct}}%{{prog.total ? '（' + prog.done + '/' + prog.total + '）' : ''}}</text>
+  </view>
+  <view class="pbar"><view class="pbar-in {{platform==='qimao'?'blue':''}}" style="width:{{prog.pct}}%"></view></view>
+  <view wx:if="{{prog.current}}" class="pcard-cur">正在：{{prog.current}}</view>
+  <view wx:for="{{prog.steps}}" wx:key="key" class="pcard-step {{item.status}}">
+    <text class="ico">{{item.status==='done'?'✓':(item.status==='running'?'⏳':(item.status==='failed'?'✗':'○'))}}</text>
+    <text>{{item.label}}</text>
+  </view>
+  <view class="pcard-hint">任务在服务端跑，退出小程序也不会中断，回来接着看进度。</view>
+</view>
+
+<!-- 步骤指示 -->
+<view class="steps">
+  <view class="dot {{step>=1?'on':''}}"></view><view class="dot {{step>=2?'on':''}}"></view><view class="dot {{step>=3?'on':''}}"></view><view class="dot {{step>=4?'on':''}}"></view>
+</view>
+
+<!-- 上次没走完的进度已自动恢复 -->
+<view wx:if="{{draftTip}}" class="draft-tip">{{draftTip}}（第 {{step}} 步 · 题材：{{genreText}}）</view>
+<view wx:if="{{staleTip}}" class="dup-step" style="border-left-color:#faad14">{{staleTip}}</view>
+
+<!-- 步骤1 题材（可多选） -->
+<view wx:if="{{step===1}}" class="card">
+  <view class="card-h">① 选题材<text class="muted" style="font-size:24rpx;font-weight:400">（可多选，再点一次取消）</text></view>
+  <view class="tagrow">
+    <view class="chip {{platform==='qimao'?'blue':''}} {{u.has(genres,item)?'on':''}}" wx:for="{{topics}}" wx:key="*this" data-t="{{item}}" bindtap="pickTopic"><text wx:if="{{u.has(genres,item)}}" class="tick">✓</text>{{item}}</view>
+  </view>
+  <view class="row" style="margin-top:16rpx">
+    <input value="{{customTopic}}" bindinput="onCustom" bindconfirm="addTopic" confirm-type="done" placeholder="自定义题材，回车添加" style="flex:1;border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx" />
+    <view class="copy {{platform==='qimao'?'blue':''}}" style="margin-left:12rpx" bindtap="addTopic">＋ 添加</view>
+  </view>
+  <view class="picked {{genres.length?'has':''}} {{platform==='qimao'?'blue':''}}">
+    {{genres.length ? '已选题材（' + genres.length + '）：' + genreText : '还没选题材，点上面的标签即可多选'}}
+  </view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="margin-top:16rpx" bindtap="aiRecommend">🤖 AI 推荐题材（按当前平台爆款）</view>
+  <view wx:if="{{showRec}}" class="rec">
+    <view class="muted" style="margin-bottom:8rpx">🔥 当前爆款题材（AI 扫榜）· 点一下加入上方，同样可多选</view>
+    <view class="tagrow">
+      <view class="chip {{platform==='qimao'?'blue':''}} {{u.has(genres,item)?'on':''}}" wx:for="{{recTopics}}" wx:key="*this" data-t="{{item}}" bindtap="pickRec"><text wx:if="{{u.has(genres,item)}}" class="tick">✓</text>{{item}}</view>
+    </view>
+  </view>
+  <view class="label">每章目标字数（硬指标，可改）</view>
+  <input value="{{chapterWords}}" bindinput="onWords" type="number" placeholder="2000" style="border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx" />
+  <view class="btn" bindtap="next">下一步：目标读者</view>
+</view>
+
+<!-- 步骤2 目标读者 -->
+<view wx:if="{{step===2}}" class="card">
+  <view class="card-h">② 目标读者</view>
+  <view class="muted">已根据题材「{{genreText}}」推荐：{{reader}}</view>
+  <view class="tagrow" style="margin-top:12rpx">
+    <view class="chip {{platform==='qimao'?'blue':''}} {{reader===item?'on':''}}" wx:for="{{readerOptions}}" wx:key="*this" data-r="{{item}}" bindtap="pickReader"><text wx:if="{{reader===item}}" class="tick">✓</text>{{item}}</view>
+  </view>
+  <view class="row" style="margin-top:16rpx">
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0" bindtap="back">← 上一步</view>
+    <view class="btn" style="flex:2;margin:0 0 0 16rpx" bindtap="next">下一步：签约状态</view>
+  </view>
+</view>
+
+<!-- 步骤3 签约状态 -->
+<view wx:if="{{step===3}}" class="card">
+  <view class="card-h">③ 签约状态<text class="muted" style="font-size:24rpx;font-weight:400">（必选）</text></view>
+  <view class="tagrow">
+    <view class="chip {{contract==='signing'?'on':''}}" data-c="signing" bindtap="pickContract"><text wx:if="{{contract==='signing'}}" class="tick">✓</text>签约（未签约）</view>
+    <view class="chip {{contract==='signed'?'on':''}}" data-c="signed" bindtap="pickContract"><text wx:if="{{contract==='signed'}}" class="tick">✓</text>已签约</view>
+  </view>
+  <view wx:if="{{!contract}}" class="picked">还没选签约状态，选完才能进入下一步</view>
+  <view class="row" style="margin-top:16rpx">
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0" bindtap="back">← 上一步</view>
+    <view class="btn" style="flex:2;margin:0 0 0 16rpx" bindtap="next">下一步：AI 起名 + 大纲</view>
+  </view>
+</view>
+
+<!-- 步骤4 起名大纲 -->
+<view wx:if="{{step===4 && outline}}" class="card">
+  <view class="card-h">④ AI 生成作品名 + 大纲</view>
+
+  <view class="label">作品名（可以直接改，改完点保存）</view>
+  <view class="row">
+    <input class="title-edit" value="{{titleEdit}}" bindinput="onTitle" maxlength="30" placeholder="作品名" />
+    <view class="copy {{platform==='qimao'?'blue':''}}" bindtap="saveTitle">保存</view>
+    <view class="copy {{platform==='qimao'?'blue':''}}" style="margin-left:10rpx" bindtap="copy" data-text="{{titleEdit}}">复制</view>
+  </view>
+
+  <!-- 还没大纲（从作品列表点进来的半成品）→ 补生成入口 -->
+  <block wx:if="{{!outline.outline}}">
+    <view style="background:#fff8e6;border:2rpx solid #ffe08a;color:#8a6d00;font-size:25rpx;padding:16rpx 20rpx;border-radius:12rpx;margin:20rpx 0;line-height:1.6">
+      这份作品还没有生成大纲，所以进去之后没有章节可写。点下面按钮，AI 会按题材「{{genreText}}」生成作品名 + 三幕大纲，然后就能定版。
+    </view>
+    <view class="btn" bindtap="regen">✨ 生成 AI 作品名 + 大纲</view>
+  </block>
+
+  <block wx:else>
+  <view class="label">一句话卖点</view>
+  <view>{{outline.sellPoint}}</view>
+
+  <view class="label">大纲（三幕）</view>
+  <view class="muted">{{outline.outline}}</view>
+
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="copy" data-text="{{titleEdit}}｜{{outline.sellPoint}}｜{{outline.outline}}">复制名+大纲</view>
+
+  <!-- 撞车检测（书名一生成就会自动查，这里可手动重查） -->
+  <view class="label">撞车检测（番茄 / 七猫热榜 + 全网同名比对）</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="checkDup">🔍 重新查重（起名 / 改名后已自动查）</view>
+
+  <!-- 撞车处置：high / mid 都会中断定版，必须在这里选一个方向（作者要求：出现相似就停下来给名让他选） -->
+  <view wx:if="{{dupReport && dupReport.risk!=='low'}}" class="dup {{dupReport.risk==='high'?'dup-high':'dup-mid'}}">
+    <view class="dup-tag">{{dupReport.risk==='high'?'⚠ 严重撞车 · 定版已中断':'⚠ 存在相似 · 定版已中断'}}</view>
+    <view class="dup-note">{{dupReport.riskNote}}</view>
+
+    <view class="dup-step">① 撞到了谁</view>
+    <view class="muted" wx:for="{{dupReport.matches}}" wx:key="title">· 《{{item.title}}》（{{item.platform}} · {{item.type}} · 相似度{{item.similarity}}）：{{item.why}}</view>
+    <view wx:if="{{!dupReport.matches.length}}" class="muted">未列出具体作品，但整体判定为高度雷同。</view>
+
+    <view class="dup-step">② 直接选一个新书名（都已联网预检过，点「用这个」= 改名 + 按配套剧情重出大纲）</view>
+    <!-- 有预检数据：显示完整卡片（推荐标记 + 预检结论 + 配套剧情） -->
+    <block wx:if="{{dupReport.picks.length}}">
+      <block wx:for="{{dupReport.picks}}" wx:key="title">
+        <view class="pick">
+          <view class="pick-main">
+            <text wx:if="{{index===0}}" class="pick-badge">推荐</text>
+            <text class="pick-name">{{item.title}}</text>
+            <text wx:if="{{item.risk==='low'}}" class="dup-ok">已预检·不撞车</text>
+          </view>
+          <view class="pick-go" data-t="{{item.title}}" data-p="{{item.plot}}" bindtap="applyDupTitle">用这个</view>
+        </view>
+        <view wx:if="{{item.note}}" class="muted" style="margin:6rpx 0 0 8rpx">预检：{{item.note}}</view>
+        <view wx:if="{{item.plot}}" class="muted" style="margin:0 0 8rpx 8rpx;color:#07a352">配套剧情：{{item.plot}}</view>
+      </block>
+    </block>
+    <!-- 兜底：万一没拿到预检数据，也要把备选名做成可点的按钮，绝不留一堆文字卡住作者 -->
+    <block wx:else>
+      <view class="pick" wx:for="{{dupReport.titleSuggestions}}" wx:key="*this">
+        <view class="pick-main">
+          <text wx:if="{{index===0}}" class="pick-badge">推荐</text>
+          <text class="pick-name">{{item}}</text>
+        </view>
+        <view class="pick-go" data-t="{{item}}" bindtap="applyDupTitle">用这个</view>
+      </view>
+      <view wx:if="{{!dupReport.titleSuggestions.length}}" class="muted" style="color:#e64340">
+        连换几批名字都没能通过防撞预检（这个题材的命名太拥挤）。建议换一条赛道，也可以再试一批。
+      </view>
+    </block>
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="margin-top:12rpx" bindtap="moreTitles">🔄 换一批推荐名（只给不撞车的）</view>
+
+    <!-- 自己起一个：填进去先预检，通过就能直接用（AI 一批都挑不出来时至少还有这条路） -->
+    <view class="dup-step">③ 或自己起一个（先预检再决定）</view>
+    <input value="{{myTitle}}" bindinput="onMyTitle" placeholder="输入你想用的书名" style="border:2rpx solid #ddd;border-radius:12rpx;padding:14rpx 16rpx;font-size:28rpx" />
+    <view class="btn ghost" style="margin-top:12rpx" bindtap="checkMyTitle">🔍 预检这个书名</view>
+    <block wx:if="{{myTitleCheck}}">
+      <view class="muted" style="margin-top:8rpx">
+        预检结果：{{myTitleCheck.risk==='low' ? '✓ 不撞车，可以用' : (myTitleCheck.risk==='high' ? '✗ 撞在榜热书' : '⚠ 有相似，能用剧情拉开')}} —— {{myTitleCheck.note}}
+      </view>
+      <view wx:if="{{myTitleCheck.plot}}" class="muted" style="color:#07a352">配套剧情：{{myTitleCheck.plot}}</view>
+      <view class="pick" style="margin-top:10rpx">
+        <view class="pick-main"><text class="pick-name">{{myTitleCheck.title}}</text></view>
+        <view class="pick-go" data-t="{{myTitleCheck.title}}" data-p="{{myTitleCheck.plot}}" bindtap="applyDupTitle">用这个</view>
+      </view>
+    </block>
+    <!-- 一键修复流水线的进度：换名→大纲→脉络→简介→黄金三章→封面→复查重 -->
+    <block wx:if="{{dupFixSteps.length}}">
+      <view class="dup-step">修复流水线进度</view>
+      <view class="task-row" wx:for="{{dupFixSteps}}" wx:key="key">
+        <text class="task-ico {{item.status}}">{{item.status==='done'?'✓':(item.status==='running'?'⏳':(item.status==='failed'?'✗':'○'))}}</text>
+        <text class="task-label">{{item.label}}</text>
+        <text class="task-note">{{item.note || item.error || ''}}</text>
+      </view>
+    </block>
+    <view wx:if="{{!dupReport.picks.length}}" class="btn ghost" style="margin-top:12rpx" bindtap="goTopicAgain">↩ 换题材重做（推荐）</view>
+    <!-- 永远留一个出口：不想再换名也能直接往下走 -->
+    <view class="btn ghost" style="margin-top:12rpx;color:#e6a23c;border-color:#e6a23c" bindtap="forceFinalize">⏭ 不换名了，仍要定版</view>
+    <view class="muted">换完名会自动按这个名配套的差异化剧情重出大纲，再点「定版」生成分卷时间线。</view>
+
+    <block wx:if="{{dupReport.plotAdvice}}">
+      <view class="dup-step">③ AI 会同步做的差异化调整（避免情节照搬）</view>
+      <view class="muted">{{dupReport.plotAdvice}}</view>
+    </block>
+
+    <view class="dup-step">④ 还是想换个方向？</view>
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="goTopicAgain">↩ 回到第①步，换题材重做</view>
+    <view class="muted">改完题材一路点「下一步」，会按新题材重出书名和大纲。也可以直接改上方「作品名」再点保存。</view>
+
+    <view class="dup-step">⑤ 确实要冒险（不推荐）</view>
+    <view class="btn ghost" bindtap="forceFinalize">我已确认风险，仍要定版</view>
+  </view>
+
+  <!-- 中/低风险：只提示，不拦定版 -->
+  <view wx:elif="{{dupReport}}" class="dup {{dupReport.risk==='mid'?'dup-mid':'dup-low'}}">
+    <view class="dup-tag">{{dupReport.risk==='mid'?'⚠ 存在相似，建议差异化':'✓ 未发现明显撞车'}}</view>
+    <view class="dup-note">{{dupReport.riskNote}}</view>
+    <block wx:if="{{dupReport.matches.length}}">
+      <view class="dup-k">比对到的在榜作品</view>
+      <view class="muted" wx:for="{{dupReport.matches}}" wx:key="title">· 《{{item.title}}》（{{item.platform}} · {{item.type}} · 相似度{{item.similarity}}）：{{item.why}}</view>
+    </block>
+    <block wx:if="{{dupReport.plotAdvice}}">
+      <view class="dup-k">情节差异化建议（定版时会强制写入大纲）</view>
+      <view class="muted">{{dupReport.plotAdvice}}</view>
+    </block>
+  </view>
+
+  <view class="btn" bindtap="finalize">✓ 定版：全书脉络 + 分卷时间线 + 黄金1-3章</view>
+
+  <!-- 定版进度 -->
+  <view wx:if="{{steps.length}}" class="task">
+    <view class="task-h">定版进度</view>
+    <view class="task-row" wx:for="{{steps}}" wx:key="stage">
+      <text class="task-ico {{item.status}}">{{item.status==='done'?'✓':(item.status==='running'?'⏳':(item.status==='failed'?'✗':'○'))}}</text>
+      <text class="task-label">{{item.label}}</text>
+      <text class="task-note">{{item.note || item.error || ''}}</text>
+    </view>
+    <view wx:if="{{taskError}}" class="task-err">失败原因：{{taskError}}</view>
+    <view wx:if="{{taskText}}" class="muted" style="margin-top:8rpx">当前：{{taskText}}</view>
+  </view>
+
+  <view class="label">重来时输入意见（可选，重来必换新书名）</view>
+  <input value="{{opinion}}" bindinput="onOpinion" placeholder="例如：换男频口味、节奏更快、书名再霸气点" style="border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx" />
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="regen">↻ 重来（按意见重新起名 + 出大纲）</view>
+  </block>
+</view>
