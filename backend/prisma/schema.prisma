@@ -7,9 +7,45 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 用户（微信静默登录后自动创建）
+// 【隐私铁律】只存 openid/unionid，不存头像、昵称、手机号、位置、设备标识。
+// 真需要展示头像昵称时，走微信「头像昵称填写能力」由用户主动授权，且必须先在后台隐私指引里勾选对应项。
+model User {
+  id          String    @id @default(cuid())
+  openid      String    @unique // 微信 openid：同一小程序内唯一，可识别到自然人，属个人信息
+  unionid     String?   // 同一开放平台账号下唯一（绑定公众号/其他小程序后才有）
+  level       String    @default("free") // 等级代码，对应 entitlement.ts 的 PLANS：free | vip | ...
+  vipExpireAt DateTime? // 付费到期时间；为空=不过期。过期后 resolvePlan 自动降级回 free
+  quotaJson   String?   // JSON：手工覆盖的配额（运营调额用），未设则取套餐默认值
+  status      String    @default("active") // active | banned（banned 后禁止写操作，数据保留便于申诉）
+  createdAt   DateTime  @default(now())
+  lastLoginAt DateTime?
+  novels      Novel[]
+  orders      Order[]
+}
+
+// 订单（微信支付接入后启用；现在只建表，不产生数据）
+model Order {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planCode   String    // 套餐代码（vip_month / vip_year / ...）
+  amount     Int       // 金额，单位：分
+  status     String    @default("pending") // pending | paid | closed | refunded
+  channel    String    @default("wxpay")   // wxpay | manual（人工开通/兑换码）
+  outTradeNo String    @unique            // 我方订单号
+  wxOrderNo  String?   // 微信支付订单号
+  createdAt  DateTime  @default(now())
+  paidAt     DateTime?
+  @@index([userId])
+}
+
 // 作品（一本小说）
 model Novel {
   id            String   @id @default(cuid())
+  userId        String?  // 归属用户。可空：历史作品（登录功能上线前建的）保持 null 且对所有登录用户可见，
+                         // 绝不能让作者一登录就发现老作品"不见了"
+  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   platform      String   // 'fanqie' | 'qimao'
   title         String
   penName       String?  // 笔名
@@ -52,6 +88,8 @@ model Novel {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   chapters      Chapter[]
+
+  @@index([userId])
 }
 
 // 章节

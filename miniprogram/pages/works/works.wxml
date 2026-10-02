@@ -21,3 +21,4 @@
   ✍️ 我的笔名：{{pen || '未设置（点此确认）'}}
 </view>
 <view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="goGuide">首次引导 / 笔名推荐</view>
+<view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="goMe">👤 我的（等级 / 隐私 / 注销）</view>

@@ -1,0 +1,60 @@
+<view class="page">
+  <view class="card" wx:if="{{loading}}">
+    <view class="muted">加载中…</view>
+  </view>
+
+  <block wx:if="{{!loading}}">
+    <!-- 账号 -->
+    <view class="card">
+      <view class="row">
+        <text class="k">账号</text>
+        <text class="v">{{loggedIn ? me.openidMasked : '游客（未登录）'}}</text>
+      </view>
+      <view class="row" wx:if="{{loggedIn}}">
+        <text class="k">注册时间</text>
+        <text class="v">{{me.createdAt}}</text>
+      </view>
+      <view class="muted tip" wx:if="{{!loggedIn}}">
+        后端未配置小程序密钥，或登录失败。此时功能不受影响，仅不做作品归属隔离。
+      </view>
+    </view>
+
+    <!-- 等级与用量 -->
+    <view class="card">
+      <view class="row">
+        <text class="k">当前等级</text>
+        <text class="v strong">{{plan.name}}</text>
+      </view>
+      <view class="row" wx:if="{{loggedIn && me.vipExpireAt}}">
+        <text class="k">有效期至</text>
+        <text class="v">{{me.vipExpireAt}}</text>
+      </view>
+      <view class="row">
+        <text class="k">作品数</text>
+        <text class="v">{{novelCount}} / {{limits.maxNovels}}</text>
+      </view>
+      <view class="row">
+        <text class="k">今日生成</text>
+        <text class="v">{{usage.chapters}} 章 · {{usage.words}} 字</text>
+      </view>
+      <view class="row">
+        <text class="k">今日上限</text>
+        <text class="v">{{limits.dailyChapters}} 章 · {{limits.dailyWords}} 字</text>
+      </view>
+      <view class="row">
+        <text class="k">全书重审</text>
+        <text class="v">{{limits.auditFullScan ? '可用' : '仅增量复检'}}</text>
+      </view>
+    </view>
+
+    <!-- 操作 -->
+    <view class="btns">
+      <view class="btn ghost" bindtap="openPrivacy">查看隐私政策</view>
+      <view class="btn danger" wx:if="{{loggedIn}}" bindtap="destroy">注销账号</view>
+    </view>
+
+    <view class="muted tip">
+      我们只收集微信 openid 用于识别账号，不收集头像、昵称、手机号、位置等信息。
+    </view>
+  </block>
+</view>

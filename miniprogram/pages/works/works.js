@@ -46,6 +46,7 @@ Page({
   },
   goWizard() { wx.navigateTo({ url: '/pages/wizard/wizard' }); },
   goGuide() { wx.navigateTo({ url: '/pages/guide/guide' }); },
+  goMe() { wx.navigateTo({ url: '/pages/me/me' }); },
   /**
    * 点作品分流：没生成《全书脉络》的作品进「作品资料页」会无路可走（无章节、续更卡住），
    * 所以先回到向导第④步把大纲和定版走完。

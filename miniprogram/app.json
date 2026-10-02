@@ -6,8 +6,10 @@
     "pages/intro/intro",
     "pages/bible/bible",
     "pages/chapter/chapter",
-    "pages/bot/bot"
+    "pages/bot/bot",
+    "pages/me/me"
   ],
+  "__usePrivacyCheck__": true,
   "window": {
     "navigationBarBackgroundColor": "#07c160",
     "navigationBarTitleText": "小说助手",

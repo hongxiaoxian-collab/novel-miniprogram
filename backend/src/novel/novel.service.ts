@@ -370,8 +370,10 @@ export class NovelService {
     return PLATFORMS;
   }
 
-  listNovels(platform?: string) {
-    const where = platform ? { platform } : {};
+  listNovels(platform?: string, uid?: string | null) {
+    const base = platform ? { platform } : {};
+    // 登录后仍要看到 userId 为空的历史作品：否则作者一登录就发现老作品"不见了"，会以为数据丢了
+    const where = uid ? { ...base, OR: [{ userId: uid }, { userId: null }] } : base;
     return this.prisma.novel.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
@@ -385,10 +387,11 @@ export class NovelService {
     return n;
   }
 
-  async createNovel(dto: CreateNovelDto) {
+  async createNovel(dto: CreateNovelDto, uid?: string | null) {
     return this.prisma.novel.create({
       data: {
         ...dto,
+        userId: uid || null,
         title: cleanTitle(dto.title),
         chapterWords: dto.chapterWords ?? 2000,
         tags: dto.tags ? JSON.stringify(dto.tags) : undefined,
