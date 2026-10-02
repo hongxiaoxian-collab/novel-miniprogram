@@ -11,10 +11,14 @@
 #   微信开发者工具 -> 设置 -> 安全设置 -> 服务端口：开启，并已登录有该小程序权限的微信号
 set -e
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd -W)"
 CLI="C:/Program Files (x86)/Tencent/微信web开发者工具/cli.bat"
 KEY="C:/Users/53430/.ssh/erp_deploy_ed25519"
 VER_FILE="$ROOT/deploy/version.txt"
+# 上传必须用无中文的项目路径：Git Bash 调 .bat 时，参数里的中文路径会让整行引号丢失，
+# cmd 会报 "'C:\Program' 不是内部或外部命令"。C:/novel-app 是指向项目根的联接（mklink /J）。
+PROJ="C:/novel-app"
+[ -d "$PROJ" ] || PROJ="$ROOT"
 export GIT_SSH_COMMAND="ssh -i $KEY -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes"
 
 MSG="chore: 日常修正与同步"
@@ -53,16 +57,17 @@ echo "    远端：$(git ls-remote origin refs/heads/master | cut -f1)"
 
 # 3) 上传小程序（版本号自动 patch+1）
 [ -n "$VER" ] || VER="$(awk -F. '{printf "%d.%d.%d",$1,$2,$3+1}' "$VER_FILE" 2>/dev/null || echo 1.0.0)"
-echo "==> 3/3 上传小程序 v$VER"
-if "$CLI" upload --project "$ROOT" -v "$VER" -d "$MSG" 2>&1 | tee /tmp/wx-upload.log | grep -v "post-quantum\|store now\|openssh.com"; then
-  :
-fi
-if grep -q "服务端口已关闭\|IDE service port disabled" /tmp/wx-upload.log; then
+echo "==> 3/3 上传小程序 v$VER（$PROJ）"
+LOG=/tmp/wx-upload.log
+"$CLI" upload --project "$PROJ" -v "$VER" -d "$MSG" > "$LOG" 2>&1 || true
+tr -d '\000' < "$LOG" | grep -a -v "post-quantum\|store now\|openssh.com\|DeprecationWarning\|trace-deprecation" | tail -8
+if grep -a -q "服务端口已关闭\|IDE service port disabled" "$LOG"; then
   echo ""
   echo "× 上传失败：开发者工具的服务端口没开。"
   echo "  手动开一次：微信开发者工具 -> 设置 -> 安全设置 -> 服务端口 -> 开启"
   exit 1
 fi
+grep -a -q "√ upload" "$LOG" || echo "× 没看到上传成功标记，请到开发者工具或公众平台确认"
 echo "$VER" > "$VER_FILE"
 echo "    版本号已写入 deploy/version.txt -> $VER"
 echo ""
