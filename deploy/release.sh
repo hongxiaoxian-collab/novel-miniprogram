@@ -15,10 +15,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd -W)"
 CLI="C:/Program Files (x86)/Tencent/微信web开发者工具/cli.bat"
 KEY="C:/Users/53430/.ssh/erp_deploy_ed25519"
 VER_FILE="$ROOT/deploy/version.txt"
-# 上传必须用无中文的项目路径：Git Bash 调 .bat 时，参数里的中文路径会让整行引号丢失，
-# cmd 会报 "'C:\Program' 不是内部或外部命令"。C:/novel-app 是指向项目根的联接（mklink /J）。
-PROJ="C:/novel-app"
-[ -d "$PROJ" ] || PROJ="$ROOT"
+# 上传必须用**真实**项目路径：换个联接路径（mklink /J）给 IDE，CLI 会卡在 "- Upload" 不动。
+PROJ="$ROOT"
+# 临时 ps1/日志放在无中文的联接目录：bash 把含中文的路径当参数传给 powershell 有乱码风险
+PSDIR="C:/novel-app"
+[ -d "$PSDIR/deploy" ] || PSDIR="$ROOT"
 export GIT_SSH_COMMAND="ssh -i $KEY -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes"
 
 MSG="chore: 日常修正与同步"
@@ -60,8 +61,8 @@ echo "    远端：$(git ls-remote origin refs/heads/master | cut -f1)"
 echo "==> 3/3 上传小程序 v$VER（$PROJ）"
 # 必须绕开 Git Bash 直调 .bat：只要任一参数含中文（项目路径、备注），整行引号就会丢，
 # cmd 报 "'C:\Program' 不是内部或外部命令"。改由 PowerShell 执行，路径全部走无中文的联接目录。
-PS1="$PROJ/deploy/.upload.ps1"
-LOG="$PROJ/deploy/.upload.log"
+PS1="$PSDIR/deploy/.upload.ps1"
+LOG="$PSDIR/deploy/.upload.log"
 {
   printf '\xEF\xBB\xBF'                       # UTF-8 BOM：PowerShell 5.1 才不会把中文读成乱码
   printf '& "%s" upload --project "%s" -v %s -d "%s" *>&1 | Out-File -Encoding utf8 "%s"\n' \
