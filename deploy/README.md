@@ -7,6 +7,10 @@
 - 端口占用：ERP 后端 3000、nginx 80/443、另有 8080。**3001 空闲**，专给小说后端
 - 防火墙已放行 TCP 3001（规则名 `Novel Backend 3001`）
 - 服务以**计划任务 `NovelBackend`** 常驻：开机自启 + 进程崩溃 5 秒自愈
+- 另有一分钟一次的**守护任务 `NovelWatchdog`**（`deploy/watchdog.cmd`）：3001 没监听就 `schtasks /run /tn NovelBackend`。
+  第一层（循环自愈）只能救 node 崩，救不了**整个循环死掉**——2026-10-02→10-06 服务就那样挂了几天没人发现，守护是第二层。
+  部署期间有 `pause.lock` 时守护会自动跳过，不会跟部署抢。日志：`C:\erp\novel-backend\watchdog.log`
+  安装命令：`schtasks /create /tn NovelWatchdog /tr "C:\erp\novel-backend\watchdog.cmd" /sc minute /mo 1 /f`
 
 ## 目录
 ```
