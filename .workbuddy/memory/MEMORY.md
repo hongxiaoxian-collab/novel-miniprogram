@@ -20,3 +20,28 @@
 - **续更 = 发布**：每章写完立刻跑发布前自检，最多 3 轮「查→修→复检」，可自动修问题归零才算通过；自检只查矛盾不查撞车。
 - 一键体检支持分项：`scope=both | consistency | dup`，只查一项时另一项沿用上次结论。
 - 体检必须收敛：连点多次结果必须一致，修一轮条数只能变少。
+
+## 测试服掉线排查（2026-10-06 实战）
+- 作者报「作品不见了」时，**先 curl 判断是服务挂了还是数据真丢**：
+  `curl -o /dev/null -w "%{http_code}" --noproxy '*' http://120.79.174.44:3001/`
+  → `000` = 服务没起（数据在，别慌）；`200` 但列表空 = 才查数据。
+- 服务由计划任务 `NovelBackend`（BootTrigger + `start-server.cmd` 的 `:loop` 自愈）托管。
+  开机触发器只在重启时生效，实例被终止后不会自愈 → 需手动 `resume-server.cmd` 拉起。
+- 数据库文件路径 `C:\erp\novel-backend\prisma\novel.db`，几百 KB 即代表数据完好。
+- SSH 命令：服务器路径一律用正斜杠；输出要 `| tr -d '\000' | grep -a -v "post-quantum|store now"`；
+  读 `~/.ssh/erp_deploy_ed25519` 需 `dangerouslyDisableSandbox: true`。
+
+## 账号 / 登录 / 等级（2026-10-02 建成，2026-10-06 已启用）
+- 后端 `auth` 模块 + `plan.ts` 套餐表 + `User`/`Order` 表已上线。
+- **2026-10-06 已启用**：作者给了 AppSecret，已写入服务器 `C:/erp/novel-backend/.env`
+  （`WX_APPID` / `WX_APP_SECRET` / `AUTH_SECRET`，后者用 `secrets.token_hex(32)` 强随机生成），后端已重启。
+  实测 `GET /auth/plans` → `enabled:true`。AppID：`wx879e614f17e6d355`。
+- **验证技巧**：用假 code 调 `POST /auth/login`，微信回 `40029` = 密钥正确（只是 code 无效）；
+  回 `40013`/`40125` 才是 appid/secret 错；超时才是网络不通。
+- **重启后端的正确姿势**（服务器上）：杀 3001 监听 PID → `start-server.cmd` 的自愈循环 5 秒内自动拉起。
+  注意 `timeout /t` 在 ssh 无 stdin 环境会报「不支持输入重新定向」，要用 `ping -n N 127.0.0.1` 代替 sleep。
+- 登录是**静默**的（只换 openid），不弹授权框、不收头像昵称手机号；任何失败降级为游客。
+- 作品归属：新建作品带 userId；**历史作品 userId 为空且对所有登录用户仍可见**——
+  这是刻意设计，避免作者一登录就以为作品丢了。
+- 等级差异全部集中在 `backend/src/auth/plan.ts` 的 `PLANS`，业务代码无 `if(level==='vip')`。
+  **配额目前只统计展示、不做拦截**，等作者给具体要求再接入。
