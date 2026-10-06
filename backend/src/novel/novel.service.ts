@@ -370,15 +370,23 @@ export class NovelService {
     return PLATFORMS;
   }
 
-  listNovels(platform?: string, uid?: string | null) {
+  async listNovels(platform?: string, uid?: string | null) {
     const base = platform ? { platform } : {};
     // 登录后仍要看到 userId 为空的历史作品：否则作者一登录就发现老作品"不见了"，会以为数据丢了
     const where = uid ? { ...base, OR: [{ userId: uid }, { userId: null }] } : base;
-    return this.prisma.novel.findMany({
-      where,
-      orderBy: { updatedAt: 'desc' },
-      include: { _count: { select: { chapters: true } } },
-    });
+    const list = await this.prisma.novel.findMany({ where, orderBy: { updatedAt: 'desc' } });
+    // 【作者反馈·已修】列表"已写 6 章"、点进去只有 3 章：以前直接 _count 全部章节，
+    // 连作废章节(stale)也算进去。这里改成只数有效章节，和章节目录（listChapters）口径一致。
+    const ids = list.map((n) => n.id);
+    const counts = ids.length
+      ? await this.prisma.chapter.groupBy({
+          by: ['novelId'],
+          where: { novelId: { in: ids }, stale: false } as any,
+          _count: { _all: true },
+        })
+      : [];
+    const cnt = new Map(counts.map((c: any) => [c.novelId, c._count._all]));
+    return list.map((n) => ({ ...n, _count: { chapters: cnt.get(n.id) || 0 } }));
   }
 
   async getNovel(id: string) {
@@ -569,9 +577,19 @@ ${titleRule}
   // 单次 HTTP 等不到结果：全书脉络 / 黄金三章耗时 1-3 分钟，小程序请求默认 60s 超时，
   // 会把「其实已经生成成功」误报成失败。故改为「启动即返回 + 前端轮询进度」。
 
+  /**
+   * 正在跑定版的作品 id。同一部作品同时只允许一个定版任务：
+   * 【实战事故】作者点「定版」时上一个还在写黄金三章，退出又进来（草稿恢复）后再点一次 →
+   * 两个任务并发各写 3 章，库里变成 6 章（1,1,2,2,3,3 两套标题），列表还显示"已写 6 章"。
+   * 现在第二个请求直接返回当前进度（前端照常轮询同一个任务），不再另起一个。
+   */
+  private readonly finalizing = new Set<string>();
+
   /** 启动定版：立即返回进度快照，重活在后台跑 */
   async startFinalize(id: string, dto: GenerateBibleDto = {}) {
     await this.getNovel(id);
+    if (this.finalizing.has(id)) return this.getProgress(id); // 幂等：已在跑就复用，绝不并发写稿
+    this.finalizing.add(id);
     const log: TaskStep[] = FINALIZE_STEPS.map((s): TaskStep => ({ ...s, status: 'pending' }));
     await this.prisma.novel.update({
       where: { id },
@@ -583,7 +601,9 @@ ${titleRule}
         ...(dto.onlyGolden ? {} : { bibleStatus: 'generating' }),
       } as any,
     });
-    this.runFinalize(id, dto, log).catch(() => undefined); // 后台执行，不等待
+    this.runFinalize(id, dto, log)
+      .catch(() => undefined) // 后台执行，不等待
+      .finally(() => this.finalizing.delete(id)); // 跑完（含失败）才解锁
     return this.getProgress(id);
   }
 
@@ -721,7 +741,8 @@ ${titleRule}
       title: n.title,
       bibleStatus: n.bibleStatus,
       publishReady: !!(n.intro && n.tags),
-      chapterCount: await this.prisma.chapter.count({ where: { novelId: id } }),
+      // 与列表 / 章节目录同一口径：只数有效章节，作废(stale)的不算
+      chapterCount: await this.prisma.chapter.count({ where: { novelId: id, stale: false } as any }),
     };
   }
 
@@ -1784,6 +1805,7 @@ ${lines}${dupLine}
     // 历史遗留的作废章节（stale）先清掉：否则这里 count 到它们就误判"已有正文"而跳过，
     // 结果界面显示 0 章、定版却说"已有正文章节，跳过"——永远写不出黄金三章。
     await this.prisma.chapter.deleteMany({ where: { novelId: id, stale: true } as any });
+    await this.dedupeChapters(id); // 先清掉同章号的重复稿：否则 count 到重复章也会误判"已有正文"而跳过
     if (force)     await this.prisma.chapter.deleteMany({ where: { novelId: id } as any });
     if (force) await this.clearAudit(id); // 整部重写了，旧矛盾清单不再作数
     if (!force && await this.prisma.chapter.count({ where: { novelId: id, stale: false } as any })) return 0;
@@ -1792,7 +1814,31 @@ ${lines}${dupLine}
       await this.generateChapter(id, { instruction });
       done++;
     }
+    await this.dedupeChapters(id); // 写完再兜一次：万一还有并发/重试留下的重复章，这里清掉
     return done;
+  }
+
+  /**
+   * 按章号去重：同一 order 只保留**最后写入**的那一条，其余删掉。
+   * 【实战事故】并发定版 / 中途重出大纲后重复写稿，库里出现 1,1,2,2,3,3 两套章节，
+   * 作者看到「实际 3 章、列表显示 6 章」，写稿上下文里同一章号还出现两遍（越写越乱）。
+   * @returns 删除的重复章节数
+   */
+  async dedupeChapters(id: string) {
+    const chs = await this.prisma.chapter.findMany({
+      where: { novelId: id } as any,
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, order: true } as any,
+    });
+    const keep = new Map<number, string>();
+    const drop: string[] = [];
+    for (const c of chs) {
+      const prev = keep.get(c.order);
+      if (prev) drop.push(prev); // 同章号：把先写的那条丢掉，留最新稿
+      keep.set(c.order, c.id);
+    }
+    if (drop.length) await this.prisma.chapter.deleteMany({ where: { id: { in: drop } } as any });
+    return drop.length;
   }
 
 

@@ -27,6 +27,10 @@
   → `000` = 服务没起（数据在，别慌）；`200` 但列表空 = 才查数据。
 - 服务由计划任务 `NovelBackend`（BootTrigger + `start-server.cmd` 的 `:loop` 自愈）托管。
   开机触发器只在重启时生效，实例被终止后不会自愈 → 需手动 `resume-server.cmd` 拉起。
+- **2026-10-06 已加第二层守护**：计划任务 `NovelWatchdog`（`deploy/watchdog.cmd`，每分钟一次）——
+  3001 没监听就 `schtasks /run /tn NovelBackend`；遇 `pause.lock`（部署中）自动跳过。日志 `watchdog.log`。
+  已端到端实测：`schtasks /end /tn NovelBackend` + 杀 node 后 95 秒自动恢复。
+  服务器上**没有 wmic**，要精确终止循环用 `schtasks /end /tn <任务名>`，别用 `taskkill /IM cmd.exe`（会误伤同机器的 ERP）。
 - 数据库文件路径 `C:\erp\novel-backend\prisma\novel.db`，几百 KB 即代表数据完好。
 - SSH 命令：服务器路径一律用正斜杠；输出要 `| tr -d '\000' | grep -a -v "post-quantum|store now"`；
   读 `~/.ssh/erp_deploy_ed25519` 需 `dangerouslyDisableSandbox: true`。

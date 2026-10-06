@@ -142,6 +142,17 @@ export class NovelController {
     return this.svc.getProgress(id);
   }
 
+  /**
+   * 清理同一章号的重复章节（并发定版 / 中途重出大纲留下的脏数据）：同一章号只保留最新一稿。
+   * 用于修「实际 3 章、列表显示 6 章」这类历史数据。
+   */
+  @Post(':id/dedupe')
+  async dedupe(@Param('id') id: string) {
+    const removed = await this.svc.dedupeChapters(id);
+    const chapters = await this.svc.listChapters(id);
+    return { removed, chapters };
+  }
+
   /** 撞车检测：比对番茄/七猫热榜 */
   /** 撞车检测；?force=1 表示作者主动点「重新查重」，忽略 30 分钟内的缓存 */
   @Post(':id/check-duplicate')

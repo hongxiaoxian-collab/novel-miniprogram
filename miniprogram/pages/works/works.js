@@ -44,7 +44,9 @@ Page({
       },
     });
   },
-  goWizard() { wx.navigateTo({ url: '/pages/wizard/wizard' }); },
+  // 新建小说 = 全新一本：带 fresh=1 进去，向导页不会再恢复上一部作品的草稿
+  // （以前不带参数，进去会自动恢复上次没走完的进度，作者点"新建"却看到旧小说，以为删不掉）
+  goWizard() { wx.navigateTo({ url: '/pages/wizard/wizard?fresh=1' }); },
   goGuide() { wx.navigateTo({ url: '/pages/guide/guide' }); },
   goMe() { wx.navigateTo({ url: '/pages/me/me' }); },
   /**

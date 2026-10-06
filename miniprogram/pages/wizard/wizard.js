@@ -54,8 +54,19 @@ Page({
     this.enterId = (q && q.id) || ''; // 进入时的作品 id，页面状态被回收时可兜底
     this.setData({ platform: app.globalData.platform, pen: getPen() });
     this.syncReaderOptions();
-    if (q && q.id) this.resume(q.id); // 从作品列表点进来：恢复该作品，直接停在④生成大纲
-    else this.restoreDraft();         // 否则尝试恢复上次没填完的进度
+    if (q && q.id) this.resume(q.id);        // 从作品列表点进来：恢复该作品，直接停在④生成大纲
+    else if (q && q.fresh) this.freshStart(); // 点「新建小说」进来：全新一本，绝不带出上一部
+    else this.restoreDraft();                 // 其它情况（被系统回收后回来）：接着上次没填完的填
+  },
+  /**
+   * 全新开始：清草稿 + 断掉"上一部作品"的所有关联。
+   * 【作者反馈】点「新建小说」却再次出现刚删掉的那部小说，就是因为草稿里存着旧作品 id，
+   * 连同 app.globalData.novelId 一起被继承下来（curId() 还会回退到它），于是新建流程全程对着旧作品操作。
+   */
+  freshStart() {
+    this.clearDraft();
+    app.globalData.novelId = '';
+    this.setData({ novelId: '', draftTip: '', step: 1, outline: null, titleEdit: '', dupReport: null });
   },
   /**
    * 当前作品 id。三级回退：页面状态 → 全局 → 进入时的 URL 参数。
@@ -85,10 +96,20 @@ Page({
     };
     try { wx.setStorageSync(DRAFT_KEY, draft); } catch (e) { /* 忽略 */ }
   },
-  restoreDraft() {
+  async restoreDraft() {
     let d = null;
     try { d = wx.getStorageSync(DRAFT_KEY); } catch (e) { d = null; }
     if (!d || !d.genres || !d.genres.length) return;
+    // 【实战事故·死循环】草稿里记的作品可能已被作者删掉。直接恢复 → 后面每一步都对着一个不存在的 id
+    // 操作（重出大纲必失败），作者看到的就是"删了重做还是这部、卡在这里出不去"。
+    // 所以先问服务端这个作品还在不在：不在了就丢弃草稿，干净地从第①步重新开始。
+    if (d.novelId && !(await this.novelAlive(d.novelId))) {
+      this.clearDraft();
+      app.globalData.novelId = '';
+      this.setData({ novelId: '', step: 1 });
+      wx.showToast({ title: '上次的作品已删除，已开始新的一本', icon: 'none', duration: 2500 });
+      return;
+    }
     this.setData({
       platform: d.platform || this.data.platform,
       step: d.step || 1,
@@ -113,6 +134,14 @@ Page({
   clearDraft() {
     this.setData({ draftTip: '' });
     try { wx.removeStorageSync(DRAFT_KEY); } catch (e) { /* 忽略 */ }
+  },
+  /**
+   * 作品是否还在服务端。只有明确 404（作品不存在）才算"被删了"，
+   * 网络抖动 / 后端没起来都当作还在，免得一次超时就把作者填了一半的草稿弄丢。
+   */
+  async novelAlive(id) {
+    try { await request(`/novel/${id}`); return true; }
+    catch (e) { return !(e && e.statusCode === 404); }
   },
 
   /** 恢复已有作品：题材/读者/签约/字数/作品名/大纲，未定版的可在这里接着定版 */
@@ -145,7 +174,15 @@ Page({
         backgroundColor: platform === 'qimao' ? '#2b6cff' : '#07c160',
       });
     } catch (e) {
-      wx.showToast({ title: '作品读取失败', icon: 'none' });
+      // 作品已被删除（草稿/全局还留着旧 id）→ 清干净回到第①步，别让作者对着一个不存在的作品反复点
+      if (e && e.statusCode === 404) {
+        this.clearDraft();
+        app.globalData.novelId = '';
+        this.setData({ novelId: '', step: 1 });
+        wx.showToast({ title: '该作品已删除，请重新选题材', icon: 'none', duration: 2500 });
+      } else {
+        wx.showToast({ title: '作品读取失败', icon: 'none' });
+      }
     }
     wx.hideLoading();
   },
@@ -238,9 +275,20 @@ Page({
         chapterWords: this.data.chapterWords,
         penName: pen || undefined,
       };
-      // 已有作品（如撞车后换题材重来）→ 按新设定更新重做；没有才新建，绝不能又建一部
-      const id = existId || (await request('/novel', 'POST', { ...base, title: this.data.genre + '作品' })).id;
-      if (existId) await request(`/novel/${id}`, 'PUT', base);
+      // 已有作品（如撞车后换题材重来）→ 按新设定更新重做；没有才新建，绝不能又建一部。
+      // 【死循环·已修】旧 id 指向的作品可能已被删除：以前这里直接 PUT → 抛错 → 整段 catch 成
+      // "生成失败，检查后端"，无论点多少次都失败。现在识别 404，当作没关联、自动新建一部。
+      let id = existId;
+      if (id) {
+        try {
+          await request(`/novel/${id}`, 'PUT', base);
+        } catch (e) {
+          if (!(e && e.statusCode === 404)) throw e;
+          id = '';
+          app.globalData.novelId = '';
+        }
+      }
+      if (!id) id = (await request('/novel', 'POST', { ...base, title: this.data.genre + '作品' })).id;
       app.globalData.novelId = id;
       this.setData({ novelId: id, pen: pen || '' });
       // 出大纲走后台任务：要跑一两分钟，退出小程序也照出，回来能看到进度
