@@ -9,6 +9,7 @@ import {
 } from '../common/text';
 import { SearchService } from './search.service';
 import { RANK_BOARD, renderRankBoard } from './rank-board';
+import { analyzeBook, chapterFindings, PassReport } from './pass-review';
 import { buildDocx, safeFileName, DocxSection } from '../common/docx';
 import { PLATFORMS, getPlatform, tagWhitelist } from '../platform/platform.config';
 import {
@@ -36,6 +37,42 @@ const FINALIZE_STEPS = [
   { stage: 'publish', label: '生成上架资料（简介 / 标签）' },
   { stage: 'golden', label: '写黄金 1-3 章' },
 ] as const;
+
+/**
+ * 【最高级写作铁律】目标不是"文笔好"、也不是"没矛盾"，而是 **过审 + 冲榜**。
+ *
+ * 这条规则要覆盖**所有**会产出正文的地方（黄金三章 / 续更 / 重写 / 大纲派生）。
+ * 为什么单独抽成一个常量下发给模型：
+ *   平台判据是可量化的（详见 pass-review.ts 的八项指标），如果只在事后"体检"里查，
+ *   等于写完才发现不合格、返工重写；必须在**生成时**就把指标当约束写进去，一次到位。
+ *
+ * 判据来源：番茄签约标准 + 2026 年 5/8 月低质治理公告（AI粗制滥造 / 格式混乱 / 结构失常 / 空洞水文）
+ *           + 番茄算法分发一线指标（吸量 / 完读率 / 追更比）。
+ */
+const PASS_GATE_RULE = `【过审即底线，冲榜是目标】本稿要投番茄/七猫，必须同时满足"机器审得过"和"算法愿意推"，逐条照做：
+
+一、机器审的四条死线（违反立即被拒，平台每月拒签十几万本）
+1. 禁"提纲式写文"：不许用"第一条/第二天/首先其次然后"这类编号式罗列推进剧情，
+   一律改成按事件发生的自然顺序叙述。
+2. 禁"句式重复堆砌"：同一句式不许连续出现三次以上；"了"字密度控制在 3% 以内。
+3. 禁"模板化拼接"：段落长度要有变化（18-70 字），不许整章都是同一个长度的短段或长段。
+4. 禁"空洞水文"：不许流水账、不许反复复述已知信息、不许用对白凑字数。
+   纯对白对话占比控制在 28%-50%，其余用动作、心理、场景细节承载。
+
+二、算法分发决定能不能起来（首秀期每天在跟同类书 PK）
+5. 前 300 字内必须出现第一个冲突或强反差（吸量第一关：书名/简介/开篇抓不抓人）。
+6. 每章章末 150 字内必须落一件具体发生的事（对白/动作/新信息）当钩子，
+   不许用景物描写或心情感慨收束 —— 完读率和追更比全靠这个。
+7. 章内要有情绪起伏：至少一处强情绪高点（打脸/反击/获得/揭示），
+   不许整章平铺，也不许主角长时间憋屈不反击。
+8. 爽点必须"有代价、有边界"：金手指出手就有成本（寿命/记忆/身体/关系），
+   读者厌恶无脑无敌，无代价的爽反而掉留存。
+
+三、文字质感（机器也查"句式呆板"）
+9. 长短句交替：连续的中长句之间插 4-8 字的短句打断节奏。
+10. 对话要单独成段；说话必须带动作或神态，不许光秃秃地"他说""她问"连排。
+11. 不许出现解释性、总结性的旁白（"这让他明白了一个道理…""或许这就是命运"）。
+12. 不许夹带英文单词、提示词残留、括号里的写作说明。`;
 
 /** 黄金三章写作指令（定版后自动连写，第一章必须 3 秒抓人） */
 const GOLDEN_CHAPTERS = [
@@ -875,6 +912,8 @@ ${dto.opinion ? `作者的修改意见（必须落实）：${dto.opinion}` : ''}
     return `你是网文爆款写作助手，按【${p.name}】平台规则写稿。
 【热榜研读】${HOT_STUDY_RULE}
 ${ANTI_CLASH_RULE}
+【过审即底线】选题与大纲阶段就要避开平台雷区：核心设定不许照搬热榜、主线不许"模板化套路串"、
+  题材必须能撑起 30 万字以上（七猫人工审要求看得到 30 万字后的剧情走向）。
 当前作品：题材=${n.genre || '未定'}，目标读者=${n.targetReader || '未定'}，签约状态=${n.contractStatus}。
 ${opinion ? `作者意见（必须逐条落实）：${opinion}` : ''}
 ${titleRule}
@@ -2182,12 +2221,12 @@ ${lines}${dupLine}
 【这一章现在的问题（机器逐条查出来的，必须全部解决）】
 ${findings.map((f, i) => `${i + 1}) ${f}`).join('\n')}
 
+${PASS_GATE_RULE}
+
 【硬性要求】
 1) **只改文字、节奏、分段**：情节、人物、对白内容、时间线、专有名词一个字都不许变。改情节会越改越乱，一律不许。
 2) 字数必须 ≥ ${words} 字，段落 ≥ 45 段，单段 ≤ 100 字；人物开口说话单独成段。
-3) 去 AI 味：少用"了"，破折号不超过 3 个，不要"第一条/第二天"式机械排比，不要格言式收尾。
-4) 章末 100 字内必须留一件**具体发生的事**（动作 / 对白 / 新信息）当钩子，不许用景物收束或心情感慨代替。
-5) 直接输出**改后完整正文**，不要章节标题、不要任何说明、不要代码块。
+3) 直接输出**改后完整正文**，不要章节标题、不要任何说明、不要代码块。
 
 【原正文】
 ${ch.content}`;
@@ -2200,6 +2239,187 @@ ${ch.content}`;
     await this.prisma.chapter.update({ where: { id: chId }, data: { content: text } as any });
     const left = this.polishFindings(text, words);
     return { changed: true, note: `改了 ${findings.length} 处问题${left.length ? `，还剩 ${left.length} 处` : '，已达标'}` };
+  }
+
+  /**
+   * 【过审体检】按平台签审判据给稿子打分 —— 和「一致性体检」是两码事。
+   *
+   * 一致性体检回答"故事对不对"（有无矛盾）；过审体检回答"能不能签约"（机器判据过不过）。
+   * 【实战教训 2026-10-08】某稿安全审核 11:58 秒过，签约评估同一分钟被拒，
+   * 理由"作品质量暂未达到签约标准"。全程 95 分钟 → 判定主体是机器，抓文本结构指纹。
+   * 也就是说：**没有矛盾 ≠ 能过审**。所以必须单独一层判据、单独一个分数。
+   *
+   * 纯代码计算（八项指标全部确定性），同一份稿子跑多少次结果完全一样。
+   */
+  async passReview(id: string): Promise<PassReport> {
+    await this.getNovel(id); // 先校验作品存在：否则不存在的 id 会抛出 500，前端拿不到"作品不存在"这句人话
+    const chapters = await this.prisma.chapter.findMany({
+      where: { novelId: id, stale: false } as any,
+      orderBy: { order: 'asc' },
+    });
+    if (!chapters.length) throw new Error('还没有章节可做平台过审体检');
+    return analyzeBook(chapters.map((c: any) => ({
+      order: Number(c.order),
+      title: stripChapterNo(c.title),
+      content: c.content || '',
+    })));
+  }
+
+  /**
+   * 【过审清洗】按平台判据逐章改写，改完复检，直到过线。
+   *
+   * 与「打磨」的分工：打磨是通用文字优化（无明确验收线），清洗**对着评分线打**——
+   * 只改不达标的那几项，达标项一个字节不碰。这样"改了几轮、还差多少分"是可视的。
+   *
+   * 硬约束（防 AI 越改越坏）：
+   *   ① 只改文字，情节/人名/时间线一个字不许动（改情节会牵动人名台账，越改越乱）
+   *   ② AI 返回比原文短 20% 以上 → 判定偷懒，放弃本次改动、不落库
+   *   ③ 改完必须**分数不变低**才落库（防止"修 A 指标把 B 指标改坏"）
+   */
+  private async cleanChapterOnce(id: string, chId: string, words: number): Promise<{ changed: boolean; note: string; before: number; after: number }> {
+    const ch: any = await this.prisma.chapter.findUnique({ where: { id: chId } });
+    if (!ch || !ch.content) return { changed: false, note: '章节没有正文', before: 0, after: 0 };
+    const before = analyzeBook([{ order: Number(ch.order), title: ch.title, content: ch.content }]).score;
+    const findings = chapterFindings(ch.content, words);
+    if (!findings.length) return { changed: false, note: '各项判据已达标，无需清洗', before, after: before };
+
+    const prompt = `你是网文平台的**签约审核视角**修稿人。下面这章正文被平台机器审判定命中若干"低质"特征，
+你的任务是在**不动情节**的前提下把文本结构改到合规。
+
+【本章被判定不达标的地方（机器算出来的，逐条解决）】
+${findings.map((f, i) => `${i + 1}) ${f}`).join('\n')}
+
+【平台点名的四类严禁（你改完必须一条都不沾）】
+① AI粗制滥造：内容空洞、结构失常、空洞水文
+② 格式混乱：分章异常、标点错乱、排版紊乱
+③ 结构失常：提纲式写文、复述剧情、句式重复堆砌、模板化拼接
+④ 空洞水文：流水账叙事、无意义堆砌、剧情拖沓
+
+【硬性要求】
+1) **情节、人物、对白内容、时间线、专有名词一个字都不许变**。你只做文字层面的重组：
+   拆段、并段、把对白改成带动作的叙述、换掉重复句式、调整长短句配比。
+2) 段落长度控制在 18-70 字，长短要有变化，不要整章一个长度。
+3) 少用"了"字；不要"第一条/其次/然后"式机械排比；不要格言式收尾。
+4) 字数不得少于原文的 95%。
+5) 章末 150 字内必须落一件**具体发生的事**（对白/动作/新信息）当钩子。
+6) 直接输出**改后完整正文**，不要章节标题、不要任何说明、不要代码块。
+
+【原正文】
+${ch.content}`;
+    const text = String(await this.ai.chat(prompt, 180000) || '')
+      .replace(/```[a-z]*\s*/gi, '')
+      .replace(/```/g, '')
+      .trim();
+    if (text.length < ch.content.length * 0.8) {
+      return { changed: false, note: 'AI 返回的正文过短，已放弃本次清洗', before, after: before };
+    }
+    const after = analyzeBook([{ order: Number(ch.order), title: ch.title, content: text }]).score;
+    // 改完分数反而更低 → 退回去。宁可这一章不动，也不能"越洗越差"。
+    if (after < before) {
+      return { changed: false, note: `改写后分数反而从 ${before} 降到 ${after}，已放弃本次改动`, before, after: before };
+    }
+    await this.prisma.chapter.update({ where: { id: chId }, data: { content: text } as any });
+    const left = chapterFindings(text, words);
+    return {
+      changed: true,
+      before,
+      after,
+      note: `判据 ${before} → ${after} 分${left.length ? `，还剩 ${left.length} 项不达标` : '，已全部达标'}`,
+    };
+  }
+
+  /**
+   * 【一键清洗】把全书按平台判据刷到过线。退出小程序也照跑（后台任务）。
+   * @param target 目标分（默认 85，对应"接近合格"以上；作者可指定 90 冲"可提交"）
+   */
+  async startPassCleanJob(id: string, target = 85) {
+    const n: any = await this.getNovel(id);
+    const chapters = await this.prisma.chapter.findMany({
+      where: { novelId: id, stale: false } as any,
+      orderBy: { order: 'asc' },
+    });
+    if (!chapters.length) throw new Error('还没有正文，请先定版生成黄金三章');
+    const goal = Math.max(60, Math.min(95, Math.floor(Number(target) || 85)));
+    const box: any = { before: 0, after: 0, fixed: 0, rounds: 0, left: 0, done: false };
+
+    const steps: Array<{ key: string; label: string; run: (ctx?: JobCtx) => Promise<any> }> = [
+      {
+        key: 'base',
+        label: '基线体检（八项平台判据打分）',
+        run: async () => {
+          const r = await this.passReview(id);
+          box.before = r.score;
+          box.after = r.score;
+          return `当前 ${r.score} 分（${r.level}）：${r.summary}`;
+        },
+      },
+    ];
+
+    const MAX_ROUNDS = 3;
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      steps.push({
+        key: `clean${round}`,
+        label: `第 ${round} 轮 · 按判据清洗`,
+        run: async (ctx) => {
+          const rep = await this.passReview(id);
+          if (rep.score >= goal) {
+            box.done = true;
+            return `已达 ${rep.score} 分（目标 ${goal}），提前收工`;
+          }
+          // 只挑"拖后腿"的章：按分数升序，低的先改
+          const list = [...rep.chapters].filter((c) => c.words >= 50).sort((a, b) => a.score - b.score);
+          let okThis = 0;
+          for (let i = 0; i < list.length; i++) {
+            if (ctx) await ctx.note(`第 ${round} 轮 ${i + 1}/${list.length}：第 ${list[i].order} 章《${list[i].title}》（${list[i].score} 分）`);
+            const ch: any = chapters.find((c: any) => Number(c.order) === list[i].order);
+            if (!ch) continue;
+            const res = await this.cleanChapterOnce(id, ch.id, n.chapterWords || 2000);
+            if (res.changed) { okThis += 1; box.fixed += 1; }
+            // 改完及时看总分，够线就走人（省 AI 额度）
+            const now = await this.passReview(id);
+            box.after = now.score;
+            if (now.score >= goal) break;
+          }
+          box.rounds = round;
+          return `第 ${round} 轮：改写 ${okThis} 章，当前 ${box.after} 分（目标 ${goal}）`;
+        },
+      });
+      steps.push({
+        key: `recheck${round}`,
+        label: `第 ${round} 轮 · 复检`,
+        run: async () => {
+          const r = await this.passReview(id);
+          box.after = r.score;
+          if (r.score >= goal) { box.done = true; return `复检通过：${r.score} 分，已过线`; }
+          return `复检：${r.score} 分，距目标还差 ${goal - r.score} 分`;
+        },
+      });
+    }
+
+    steps.push({
+      key: 'sum',
+      label: '汇总结果',
+      run: async () => {
+        const r = await this.passReview(id);
+        box.after = r.score;
+        box.left = r.metrics.filter((m) => !m.pass).length;
+        return {
+          before: box.before,
+          after: box.after,
+          fixed: box.fixed,
+          rounds: box.rounds,
+          done: box.done,
+          metrics: r.metrics,
+          note: `${box.before} → ${box.after} 分（${r.level}）`
+            + (box.done ? '，**已达目标线**' : `，还有 ${box.left} 项不达标`)
+            + `；本轮共改写 ${box.fixed} 章。`
+            + (box.done ? '' : '可以再点一次「一键过审清洗」继续。'),
+        };
+      },
+    });
+
+    await this.startJob(id, 'passclean', steps);
+    return { started: true, total: steps.length, before: box.before };
   }
 
   /** 打磨黄金前三章（每章最多 2 轮）：定版后单独点，把开篇磨到能直接上架 */
@@ -3616,6 +3836,7 @@ ${recent}
 【本次写稿指令】${dto.instruction}
 
 === 后台强制写作标准（用户不可见，你必须执行）===
+${PASS_GATE_RULE}
 0) 【中轴线优先】先读「中轴线定位」：本章是本卷主线的一个环节，必须顺着主线与关键节点推进，
    不得跳出大纲另开支线、不得另起一条时间线；写偏了就是废稿。
 1) 人名一律用台账里的写法，不得换字、改姓、起同音名（这是本书最常见的硬伤）。
@@ -3624,11 +3845,11 @@ ${recent}
 4) 伏笔台账：推进或回收伏笔时更新 status；禁止重复埋设已存在的伏笔；禁止烂尾不回收。
 5) 情绪曲线：本章遵循 压-小扬-压-爆 节奏，避免平淡。
 6) 一次成稿：正文必须达到 ${words} 字（硬性指标，未达标不许收尾；节奏快、口语化、有钩子）。
-7) 去AI味：避免堆砌辞藻与套路化旁白，像人写的网文。
-8) 热榜研读：${HOT_STUDY_RULE}
+7) 热榜研读：${HOT_STUDY_RULE}
 
 === 交稿前自检（必须做完再输出）===
-逐条核对：① 人名写法与台账完全一致；② 本章所有时间表述互不矛盾；③ 没有与"已锁死事实"冲突的情节。发现不一致，改好再输出。
+逐条核对：① 人名写法与台账完全一致；② 本章所有时间表述互不矛盾；③ 没有与"已锁死事实"冲突的情节；
+④ 上文【过审即底线】12 条逐条对照（尤其：无编号式罗列、段落长度有变化、前 300 字有冲突、章末有具体钩子）。发现不合格，改好再输出。
 
 仅输出如下 JSON（canon 要精简，别写长）：
 {"title":"第${order}章 章名","content":"正文（必须≥${words}字）","summary":"本章滚动摘要（≤200字）",
@@ -3882,14 +4103,14 @@ ${modeLockOf(bible)}
 【附加改写指令】${dto.instruction || '（无）'}
 
 === 后台强制标准（同写稿）===
+${PASS_GATE_RULE}
 0) 【中轴线优先】重写也只能在「中轴线定位」的框架内调整表达与节奏，不得改动本卷主线方向。
 1) 人名一律用台账里的写法，不得换字、改姓、起同音名。
 2) 时间线必须自洽：与台账时间、本章前文对齐，禁止"刚刚/昨天"这类表述自相矛盾。
 3) 六大状态锁：已锁死事实不许改；重写只调整表达与节奏，不推翻既定事实。
 4) 伏笔台账：按用户意图增删伏笔时更新 status，禁止重复埋设、禁止烂尾。
 5) 保留 压-小扬-压-爆 节奏；正文必须达到 ${words} 字（硬性指标）。
-6) 去AI味：像人写的网文。
-7) 热榜研读：${HOT_STUDY_RULE}
+6) 热榜研读：${HOT_STUDY_RULE}
 
 仅输出如下 JSON：
 {"title":"第${chapter.order}章 章名","content":"正文（必须≥${words}字）","summary":"本章滚动摘要（≤200字）",

@@ -184,6 +184,21 @@ export class NovelController {
     return this.svc.checkDuplicate(id, force === '1');
   }
 
+  /**
+   * 【平台过审体检】八项判据（AI 指纹 / 结构失衡 / 对话占比 / 开篇钩子…）打分。
+   * 与「一致性体检」分开：那个查矛盾（故事对不对），这个查能不能签约（机器判据过不过）。
+   */
+  @Get(':id/pass-review')
+  passReview(@Param('id') id: string) {
+    return this.svc.passReview(id);
+  }
+
+  /** 【一键过审清洗】按判据逐章改写，跑「清洗 → 复检」最多 3 轮，直到过目标分 */
+  @Post(':id/pass-clean')
+  passClean(@Param('id') id: string, @Body() dto: { target?: number }) {
+    return this.svc.startPassCleanJob(id, Number(dto?.target) || 85);
+  }
+
   @Get(':id/bible')
   getBible(@Param('id') id: string) {
     return this.svc.getBible(id);
