@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { NovelService } from './novel.service';
 import { NovelController } from './novel.controller';
-import { CozeModule } from '../coze/coze.module';
+import { AiModule } from '../ai/ai.module';
 import { SearchService } from './search.service';
 
 @Module({
-  imports: [CozeModule],
+  imports: [AiModule],
   controllers: [NovelController],
   providers: [NovelService, SearchService],
   exports: [NovelService, SearchService],

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CozeService } from '../coze/coze.service';
+import { AiService } from '../ai/ai.service';
 import { tryParseJson, looseStringField } from '../common/json.util';
 import { diceSimilar, titleStruct, locateQuote, normQuote, midDiff, looksLikeName } from '../common/text';
 import { SearchService } from './search.service';
@@ -361,7 +361,7 @@ function mergeCanon(prev: Canon | null, next: Canon | null): Canon {
 export class NovelService {
   constructor(
     private prisma: PrismaService,
-    private coze: CozeService,
+    private ai: AiService,
     private readonly search: SearchService,
   ) {}
 
@@ -436,7 +436,7 @@ export class NovelService {
     const prompt = `你是网文爆款写作助手。平台=${p.name}。请联网搜索该平台当前热门榜/热词，
 【热榜研读】${HOT_STUDY_RULE}
 返回 3-5 个当前最热的题材（每个 2-4 字，如 都市/重生/赘婿）。只输出 JSON：{"topics":["...","..."]}`;
-    const text = await this.coze.chat(prompt);
+    const text = await this.ai.chat(prompt);
     const parsed = tryParseJson(text, ['topics']);
     if (!parsed?.topics) throw new Error(`AI 未返回题材列表，原始输出：${text.slice(0, 200)}`);
     return { topics: parsed.topics };
@@ -448,7 +448,7 @@ export class NovelService {
   async authorAssist(dto: AuthorAssistDto) {
     const p = getPlatform(dto.platform);
     if (dto.kind === 'pen') {
-      const parsed = tryParseJson(await this.coze.chat(this.penPrompt(p, dto), 90000), ['pens']) || {};
+      const parsed = tryParseJson(await this.ai.chat(this.penPrompt(p, dto), 90000), ['pens']) || {};
       const picked: string[] = [];
       (Array.isArray(parsed.pens) ? parsed.pens : []).forEach((s: any) => {
         const v = String(s || '').trim();
@@ -456,7 +456,7 @@ export class NovelService {
       });
       return { pens: this.ensurePens(picked, dto) }; // 保证「至少 3 个」，前端永远有得选
     }
-    const text = await this.coze.chat(this.introPrompt(p, dto), 90000);
+    const text = await this.ai.chat(this.introPrompt(p, dto), 90000);
     const intro = String(text || '')
       .replace(/```[a-z]*|```/gi, '')
       .replace(/^["'“”]|["'“”]$/g, '')
@@ -505,7 +505,7 @@ ${dto.opinion ? `作者的修改意见（必须落实）：${dto.opinion}` : ''}
     let parsed: any = null;
     let lastText = '';
     for (let i = 0; i < 3; i++) {
-      lastText = await this.coze.chat(this.outlinePrompt(n, p, opinion, i > 0, lockTitle), 180000);
+      lastText = await this.ai.chat(this.outlinePrompt(n, p, opinion, i > 0, lockTitle), 180000);
       const one = tryParseJson(lastText, ['title', 'outline']);
       if (!one) continue;
       parsed = parsed && parsed.outline && !one.outline ? parsed : one;
@@ -850,7 +850,7 @@ c) 主线（核心冲突、成长路径、结局走向）是否照搬上面这�
  "plotAdvice":"情节差异化调整建议（具体到卷/章，说明如何做出与热榜作品的差异点）",
  "verdict":"一句话总结"}
 判断标准：risk=high 表示书名与在榜热书重名或开篇主线高度雷同（必须改名+调情节）；mid 表示有相似但可差异化解开；low 表示无明显撞车。`;
-    const text = await this.coze.chat(prompt, 150000);
+    const text = await this.ai.chat(prompt, 150000);
     const parsed = tryParseJson(text, ['risk']) || {};
     const aiMatches = Array.isArray(parsed.matches) ? parsed.matches : [];
     // ② 代码算出来的硬撞车优先（AI 说没事、但真抓到同名书，必须算撞 —— 否则"上面说没撞、定版说撞了"）
@@ -908,7 +908,7 @@ c) 主线（核心冲突、成长路径、结局走向）是否照搬上面这�
     let out = uniq(Array.isArray(raw) ? raw : []);
     if (out.length >= 3) return out.slice(0, 6);
     try {
-      const more = tryParseJson(await this.coze.chat(this.titleSuggestPrompt(n, out), 90000), [
+      const more = tryParseJson(await this.ai.chat(this.titleSuggestPrompt(n, out), 90000), [
         'titleSuggestions',
       ]);
       out = uniq(out.concat(Array.isArray(more?.titleSuggestions) ? more.titleSuggestions : []));
@@ -957,7 +957,7 @@ mid = 有近似结构但可用剧情拉开；high = 直接撞在榜热书。
 
 只输出 JSON，不要解释：
 {"checks":[{"title":"候选书名(必须原样回传)","risk":"high|mid|low","note":"结论(≤40字，撞的话写明撞了哪一本)","plot":"这个书名下更保险的差异化剧情(≤80字，具体到开局与主线差异点；已安全就回原剧情)"}]}`;
-    const parsed = tryParseJson(await this.coze.chat(prompt, 150000), ['checks']) || {};
+    const parsed = tryParseJson(await this.ai.chat(prompt, 150000), ['checks']) || {};
     const arr = Array.isArray(parsed.checks) ? parsed.checks : [];
     const rank: any = { low: 0, mid: 1, high: 2 };
     return titles.map((t, i) => {
@@ -1049,7 +1049,7 @@ mid = 有近似结构但可用剧情拉开；high = 直接撞在榜热书。
   /** 生成一批新书名（供"预检不过，再换一批"用）；switchStructure=true 时强制换命名结构 */
   private async genTitles(n: any, exclude: string[], switchStructure = false): Promise<string[]> {
     try {
-      const more = tryParseJson(await this.coze.chat(this.titleSuggestPrompt(n, exclude, switchStructure), 90000), ['titleSuggestions']);
+      const more = tryParseJson(await this.ai.chat(this.titleSuggestPrompt(n, exclude, switchStructure), 90000), ['titleSuggestions']);
       const arr = Array.isArray(more?.titleSuggestions) ? more.titleSuggestions : [];
       const out: string[] = [];
       arr.forEach((t: any) => {
@@ -1130,7 +1130,7 @@ ${ANTI_CLASH_RULE}
 注意：keyChapters 只列**每卷 5-8 个关键节点章**，不要逐章罗列全书；order 必须落在对应卷的 chapterRange 内。
 只输出 JSON，不要解释。`;
 
-    const text = await this.coze.chat(prompt, 240000);
+    const text = await this.ai.chat(prompt, 240000);
     let parsed = tryParseJson(text, ['coreSetting', 'volumes']) || tryParseJson(text, ['coreSetting']);
     // 输出被 token 上限截断时，volumes 常常整段丢失：精简重试一次只补骨架，避免前端「全书脉络」空白
     if (!this.hasVolumes(parsed)) {
@@ -1169,7 +1169,7 @@ ${ANTI_CLASH_RULE}
  "characters":[{"name":"","role":"主角/反派/配角","desc":"一句话"}]}
 硬性限制：volumes 3-5 卷（chapterRange 从第1章起连续衔接）；keyChapters 每卷 3 个；characters 最多 5 人。不要输出 settingDB / factions / stateLocks / foreshadow / emotionCurve。
 平台：${platName}。只输出 JSON。`;
-    const text2 = await this.coze.chat(prompt, 180000);
+    const text2 = await this.ai.chat(prompt, 180000);
     const core = tryParseJson(text2, ['volumes']) || tryParseJson(text2, ['coreSetting']);
     if (!core) return first;
     const merged: any = { ...(first || {}) };
@@ -1653,7 +1653,7 @@ ${lines}${dupLine}
 ③ 方向之间要有实质区别（例如：统一按"魂穿"写 vs 统一按"重生"写），不要换汤不换药。
 只输出 JSON：
 {"options":[{"title":"方向名(≤10字)","detail":"具体怎么改，AI 照着执行(≤80字)","reason":"为什么推荐/不推荐(≤50字)","recommend":true}]}`;
-    const parsed = tryParseJson(await this.coze.chat(prompt, 120000), ['options']) || {};
+    const parsed = tryParseJson(await this.ai.chat(prompt, 120000), ['options']) || {};
     const arr = Array.isArray(parsed.options) ? parsed.options : [];
     return arr.slice(0, 3).map((o: any, i: number) => ({
       title: String(o.title || `方案${i + 1}`).slice(0, 20),
@@ -1909,7 +1909,7 @@ ${bodies}
 确实没问题时 issues 返回空数组。`;
       let parsed: any = {};
       try {
-        parsed = tryParseJson(await this.coze.chat(prompt, 180000), ['issues']) || {};
+        parsed = tryParseJson(await this.ai.chat(prompt, 180000), ['issues']) || {};
       } catch (e) { parsed = {}; }
       if (parsed.summary) summaries.push(String(parsed.summary));
       if (Number(parsed.score)) scores.push(Number(parsed.score));
@@ -1979,7 +1979,7 @@ ${spots.join('\n\n')}
 quote 必须能在正文里逐字找到；只能概括、找不出原句的就别报（报了也定位不到、改不了）。
 只输出 JSON：{"summary":"一句话","issues":[{"level":"高|中|低","type":"人名|时间线|事实|伏笔|设定|模式|重复","chapter":章号数字,"quote":"有问题的那一句（≤40字，逐字摘录）","why":"为什么算矛盾","fix":"怎么改"}]}`;
 
-    const parsed = tryParseJson(await this.coze.chat(prompt, 60000), ['issues']) || {};
+    const parsed = tryParseJson(await this.ai.chat(prompt, 60000), ['issues']) || {};
     const issues = (Array.isArray(parsed.issues) ? parsed.issues : [])
       .filter((x: any) => x && x.quote && Number(x.chapter) > 0);
     return { issues, summary: String(parsed.summary || '') };
@@ -2516,7 +2516,7 @@ ${ch.content.slice(Math.max(0, hit.start - 150), Math.min(ch.content.length, hit
 
     let out = '';
     try {
-      const parsed = tryParseJson(await this.coze.chat(prompt, 90000), ['new']) || {};
+      const parsed = tryParseJson(await this.ai.chat(prompt, 90000), ['new']) || {};
       out = String(parsed.new || '').trim();
     } catch (e) { out = ''; }
     out = out.replace(/^[《【「"'“”]+/, '').replace(/[》】」"'“”]+$/, '').trim();
@@ -2776,7 +2776,7 @@ ${tagWhitelist(p, n.targetReader)}
 每项各选 1 个，且必须与作品内容真实匹配（标签与内容不符会被平台限流）。
 protagonists 提取 3-5 个最重要人物，name 必须来自上面人物表；人物表为空时才可按大纲自拟。`;
 
-    const text = await this.coze.chat(prompt, 120000);
+    const text = await this.ai.chat(prompt, 120000);
     const parsed = tryParseJson(text, ['intro', 'readingTags', 'contentTags']);
     if (!parsed || !parsed.intro) throw new Error('上架资料生成失败，请重试');
 
@@ -2856,7 +2856,7 @@ figure.pose: hold(手拿道具) | walk(侧身走动) | look(回望)
 "horizon":0.68,"heroScale":0.95}
 其中 palette 全部为 #rrggbb 十六进制色值；horizon 是地平线位置（0.5-0.78）；heroScale 是人物大小（0.7-1.15）。`;
 
-    const parsed = tryParseJson(await this.coze.chat(prompt, 120000), ['scene', 'props', 'palette']) || {};
+    const parsed = tryParseJson(await this.ai.chat(prompt, 120000), ['scene', 'props', 'palette']) || {};
     const plan = sanitizeCoverPlan(parsed);
     await this.prisma.novel.update({
       where: { id },
@@ -3177,7 +3177,7 @@ ${(ch.content || '').slice(0, 4000)}
 
     let ai: any[] = [];
     try {
-      const parsed = tryParseJson(await this.coze.chat(prompt, 150000), ['issues']) || {};
+      const parsed = tryParseJson(await this.ai.chat(prompt, 150000), ['issues']) || {};
       ai = Array.isArray(parsed.issues) ? parsed.issues : [];
     } catch (e) { ai = []; }
 
@@ -3243,7 +3243,7 @@ ${body.slice(-400)}
 只输出 JSON：{"add":"补写的正文"}`;
     let add = '';
     try {
-      const parsed = tryParseJson(await this.coze.chat(prompt, 150000), ['add']) || {};
+      const parsed = tryParseJson(await this.ai.chat(prompt, 150000), ['add']) || {};
       add = String(parsed.add || '').trim();
     } catch (e) { add = ''; }
     if (add.length < 80) return 0;
@@ -3413,7 +3413,7 @@ ${modeLockOf(bible)}
    * 截断是长正文的常见问题（bible 上下文 + 2000 字正文容易顶到 token 上限）。
    */
   private async askChapter(prompt: string, fallbackTitle: string) {
-    let text = await this.coze.chat(prompt, 240000);
+    let text = await this.ai.chat(prompt, 240000);
     let out = this.parseChapterOutput(text, fallbackTitle);
     if (out && !out.truncated) return out;
 
@@ -3423,7 +3423,7 @@ ${modeLockOf(bible)}
 1) 不要用 markdown 代码块包裹，不要输出 \`\`\`；
 2) 正文长度控制在目标字数的 90%-110%，写到目标字数立刻收尾并闭合 JSON；
 3) 必须输出 title / content / summary / canon 四个字段且 JSON 完整闭合（canon 可精简，facts 最多 3 条）。`;
-    text = await this.coze.chat(retry, 240000);
+    text = await this.ai.chat(retry, 240000);
     out = this.parseChapterOutput(text, fallbackTitle) || out;
     if (!out) throw new Error(`AI 未返回章节正文，原始输出：${text.slice(0, 200)}`);
     return out;
