@@ -85,6 +85,98 @@ export function locateQuote(content: string, quote: string): { start: number; en
 }
 
 /**
+ * 这句话在正文里**所有**出现的位置（不是只找第一处）。
+ *
+ * 用途：「重复」类矛盾的症状就是同一句出现两三次，而修复必须改**后出现的那一处** ——
+ * 改第一处等于没改（后面那处还在），作者看到的就是"这条怎么都修不掉"。
+ */
+export function allQuoteSpots(content: string, quote: string): Array<{ start: number; end: number }> {
+  const c = String(content || '');
+  const q = String(quote || '').trim();
+  if (!c || q.length < 2) return [];
+  const exact: Array<{ start: number; end: number }> = [];
+  for (let at = c.indexOf(q); at >= 0; at = c.indexOf(q, at + q.length)) {
+    exact.push({ start: at, end: at + q.length });
+  }
+  if (exact.length >= 2) return exact; // 逐字就能找到两处以上，够了
+
+  // 逐字对不上（AI 摘录改了标点/补了省略号）→ 去噪后匹配，再映射回原文下标
+  const qn = normQuote(q);
+  if (qn.length < 4) return exact;
+  let flat = '';
+  const idx: number[] = [];
+  for (let k = 0; k < c.length; k++) {
+    const ch = c[k];
+    if (ch.trim() && normQuote(ch) === ch) { flat += ch; idx.push(k); }
+  }
+  const out: Array<{ start: number; end: number }> = [];
+  for (let p = flat.indexOf(qn); p >= 0; p = flat.indexOf(qn, p + qn.length)) {
+    out.push({ start: idx[p], end: idx[p + qn.length - 1] + 1 });
+  }
+  return out.length > exact.length ? out : exact;
+}
+
+/**
+ * 去掉「紧挨着的逐字重复段」：
+ *   `他得稳住节奏。，他得稳住节奏。，他得稳住节奏。` → `他得稳住节奏。`
+ *   `距第十五章还差十章，距第十五章还差十章，他得稳住节奏。` → `距第十五章还差十章，他得稳住节奏。`
+ *
+ * 为什么需要：这类"重复"是机械性硬伤，但交给 AI"改写这一句"它多半原样退回（这句本身没写错），
+ * 通用流程"改后不能与原文相同"的门槛就把整条判死 —— 作者看到的就是"这条怎么都修不掉"。
+ * 规则故意做得很窄：只丢**与前一段完全一样**且长度 ≥4 字的段，不做任何语义判断，
+ * 所以正常正文（各段内容不同）一定原样返回，不会被改坏。
+ */
+export function dedupeAdjacentSegments(text: string): string {
+  const t = String(text || '');
+  const re = /([^，,。.！!？?；;：:\n]+)([，,。.！!？?；;：:]*)(\n*)/g;
+  const segs: Array<{ body: string; punct: string; nl: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t))) {
+    if (m[1].trim()) segs.push({ body: m[1].trim(), punct: m[2] || '', nl: m[3] || '' });
+  }
+  if (segs.length < 2) return t;
+  const keep: Array<{ body: string; punct: string; nl: string }> = [];
+  segs.forEach((s) => {
+    const prev = keep[keep.length - 1];
+    if (prev && prev.body === s.body && s.body.length >= 4) {
+      prev.punct = prev.punct.slice(0, 1); // 重复段被丢掉，标点只留句末那一个
+      prev.nl += s.nl; // 段间换行不能丢，否则前后两段会粘在一起
+      return;
+    }
+    keep.push({ body: s.body, punct: s.punct, nl: s.nl });
+  });
+  return keep.length === segs.length ? t : keep.map((s) => s.body + s.punct + s.nl).join('');
+}
+
+/**
+ * 去掉 AI 把「提示词 / 写作说明」当正文交出来的痕迹。
+ *
+ * 实测泄漏：字数补足插入的段落开头写成 `（以下补字数，说这制程全球独一份。现在倒好…` ——
+ * 括号里那句是提示词的意思复述，不是正文。留着有两个害处：读者会看到莫名其妙的说明，
+ * 体检也会把它判成"复述前文"。削完如果太短（说明整段都是说明），宁可原样保留。
+ */
+export function stripPromptLeak(text: string): string {
+  const t = String(text || '').trim();
+  const head = t.match(/^[（(【\[『「]?\s*(以下|下面|说明|注|备注|补字数|续写|接上|继续)/);
+  if (!head) return t;
+  const hasOpen = /^[（(【\[『「]/.test(t);
+  const from = head[0].length;
+  const limit = Math.min(t.length, from + 60);
+  let cut = -1;
+  if (hasOpen) {
+    const close = t.slice(from, limit).search(/[）)】\]』」]/); // ① 有闭合括号就用它
+    if (close >= 0) cut = from + close + 1;
+  }
+  if (cut < 0) {
+    const stop = t.slice(from, limit).search(/[。！？；\n]/); // ② 没闭合就退到第一个句末标点
+    if (stop >= 0) cut = from + stop + 1;
+  }
+  if (cut < 0) return t;
+  const out = t.slice(cut).replace(/^[，,。:：;；、\s]+/, '').trim();
+  return out.length >= 8 ? out : t; // 削完太短说明整段都是说明，宁可原样留
+}
+
+/**
  * 找两个字符串「中间那段不一样的部分」（最长公共前后缀之外）。
  * 用途：定点修复后拿 改前/改后 比一比，就能知道"到底把哪个词换成了哪个词"——
  * 由此识别人名替换（任李建 → 班主任），进而把同一个错写法在全书里一次改干净。

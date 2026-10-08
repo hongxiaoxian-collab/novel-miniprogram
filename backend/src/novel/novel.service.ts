@@ -2,7 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { tryParseJson, looseStringField } from '../common/json.util';
-import { diceSimilar, titleStruct, locateQuote, normQuote, midDiff, looksLikeName } from '../common/text';
+import {
+  diceSimilar, titleStruct, locateQuote, allQuoteSpots, normQuote, midDiff, looksLikeName,
+  dedupeAdjacentSegments, stripPromptLeak,
+} from '../common/text';
 import { SearchService } from './search.service';
 import { buildDocx, safeFileName, DocxSection } from '../common/docx';
 import { PLATFORMS, getPlatform, tagWhitelist } from '../platform/platform.config';
@@ -243,6 +246,32 @@ function sanitizeCoverPlan(raw: any): any {
 function isHumanIssue(x: any): boolean {
   return String(x?.type || '') === '模式' || String(x?.type || '') === '作品名';
 }
+
+/**
+ * 这条到底算不算矛盾。
+ *
+ * AI 逐句核对时偶尔会把"分析过程"也当成结论吐出来：why 里自己论证一圈、末尾写"不报"，
+ * fix 写"无需修改"。这种条目没有任何可改的地方，却会占一个坑位、白扣一次分，
+ * 作者体感就是"永远修不完"（2026-10-08 作者指出：既然无需改动，那就不是矛盾，不该列）。
+ */
+function isNonIssue(x: any): boolean {
+  const fix = String((x && x.fix) || '').replace(/\s/g, '');
+  const why = String((x && x.why) || '').replace(/\s/g, '');
+  if (!fix && !why) return true; // 既没说问题也没给改法 = 空条目
+  // ① fix 自己就说不用动
+  if (/^(无需|无须|不需|不用|不必|暂不需要|保持原样|保持不变|维持原样)/.test(fix)) return true;
+  if (/^(无|—|-|--|\/|／)$/.test(fix)) return true;
+  // ② why 下了"不是矛盾"的结论，且 fix 里没有可执行动作
+  const concluded = /(不报|无需报|不必报|不算矛盾|不构成矛盾|不是矛盾|未构成矛盾|无矛盾|并不矛盾|非矛盾|不算问题|不是问题|无硬伤|不成立|无需列出|不必列出)/;
+  const actionable = /(改成|改为|换成|替换|删除|删掉|补写|统一成|统一为|去掉|加上|插入)/;
+  return concluded.test(why) && !actionable.test(fix);
+}
+
+/** 「重复」类：这一句本身没写错，错在它在同一章里出现了不止一次 */
+function isDupIssue(x: any): boolean {
+  return /重复|重合|复用|同一句/.test(`${(x && x.type) || ''} ${(x && x.why) || ''} ${(x && x.fix) || ''}`);
+}
+
 
 /**
  * 去掉章名里多余的「第N章」前缀。
@@ -1904,6 +1933,8 @@ ${bodies}
 要求：quote 必须是**本批正文里逐字摘录**的句子（≤40字），这样后面才能定位回原文；不要报本批之外章节的问题。
 **如果你只能概括、在正文里找不出对应的原句，就不要报这一条** —— 程序靠这句原文定位并做定点修复，
 给描述（例如"某某为后续剧情埋伏笔"）会导致这条根本改不了，只会反复出现在清单里。
+**核对后认为"其实不矛盾 / 无需修改"的，同样不要报** —— issues 里只放"确认是问题 + 给出具体改法"的条目；
+fix 必须是可执行的动作（把 A 改成 B / 删除某句 / 补写某句），**不能写"无需修改""保持原样"**。
 只输出 JSON：
 {"score":0-100,"summary":"这批的一句话总评","issues":[{"level":"高|中|低","type":"人名|时间线|事实|伏笔|设定|模式|重复","chapter":章号数字,"quote":"原文逐字摘录","why":"为什么算矛盾","fix":"怎么改"}]}
 确实没问题时 issues 返回空数组。`;
@@ -1977,6 +2008,7 @@ ${spots.join('\n\n')}
 
 **不要**报"建议""可以更精彩""节奏略慢""伏笔偏多""表述可优化"这类主观意见 —— 这次只找硬伤。
 quote 必须能在正文里逐字找到；只能概括、找不出原句的就别报（报了也定位不到、改不了）。
+认为"其实不矛盾 / 无需修改"的也别报 —— fix 必须是可执行动作（把 A 改成 B / 删除某句 / 改写某句），不能写"无需修改"。
 只输出 JSON：{"summary":"一句话","issues":[{"level":"高|中|低","type":"人名|时间线|事实|伏笔|设定|模式|重复","chapter":章号数字,"quote":"有问题的那一句（≤40字，逐字摘录）","why":"为什么算矛盾","fix":"怎么改"}]}`;
 
     const parsed = tryParseJson(await this.ai.chat(prompt, 60000), ['issues']) || {};
@@ -2283,9 +2315,45 @@ quote 必须能在正文里逐字找到；只能概括、找不出原句的就�
    * （出现"显示 4 处可自动修、点下去 2 处找不到原句"）。
    */
   private tidyAuditReport(r: any, chapters: any[]): any {
+    /**
+     * 先剔掉"结论是不用动"的伪矛盾。
+     *
+     * AI 逐句核对时偶尔会把分析过程也当结论输出（why 里论证一圈、结尾写"不报"，
+     * fix 写"无需修改"）。留着它的后果：白扣一次分 + 清单里多一条永远点不动的"修这条"，
+     * 作者体感就是"永远修不完"（2026-10-08 作者指出：无需改动就不是矛盾，不该列出来）。
+     * 放在收尾里做，是因为这条路径同时覆盖实时体检、缓存命中和读回旧报告 ——
+     * 已经存在的老清单也会立刻变干净，不必重跑 AI。
+     */
+    const raw = Array.isArray(r.issues) ? r.issues : [];
+    const kept = raw.filter((x: any) => !isNonIssue(x));
+    if (kept.length !== raw.length) {
+      const risk = (r.dup || {}).risk || 'low';
+      // 分数按"扣分制差值"平移：老报告存的是 AI 印象分，直接换算法会"修好反而降分"
+      const detBefore = scoreOfIssues(raw, risk);
+      const offset = (Number(r.score) || detBefore) - detBefore;
+      r.issues = kept;
+      r.score = Math.max(0, Math.min(100, scoreOfIssues(kept, risk) + offset));
+      r.droppedNotIssue = (Number(r.droppedNotIssue) || 0) + (raw.length - kept.length);
+    }
+
     const byOrder = new Map<number, any>();
     chapters.forEach((c) => byOrder.set(Number(c.order), c));
     (r.issues || []).forEach((x: any) => {
+      /**
+       * 「旧写法残留」类**不靠定位原句**：它走的是重命名映射表（`deprecated → to`，全书一次换干净）。
+       * 以前一律按"能不能在正文里找到 quote"判，这类条目的 quote 是「第 4 章还有 1 处「陈陈建」」
+       * 这种统计说明、正文里当然找不到 → 被判 unlocatable、踢出"可自动修"，
+       * 作者看到的就是"改法明明写着『代码直接改』，却点不动"。
+       *
+       * 这里**必须主动清掉旧标记**：误判结果会随报告一起存进 auditJson，
+       * 只加"跳过"的话读回来仍是老样子（历史报告永远修不掉）。
+       */
+      if (x.deprecated) {
+        x.unlocatable = false;
+        x.needHuman = false;
+        x.why = String(x.why || '').replace(/^\[这条没给正文原句[^\]]*\]\s*/, '');
+        return;
+      }
       if (!(Number(x.chapter) > 0) || x.unlocatable) return;
       const c = byOrder.get(Number(x.chapter));
       if (c && !locateQuote(String(c.content || ''), x.quote)) {
@@ -2485,10 +2553,49 @@ quote 必须能在正文里逐字找到；只能概括、找不出原句的就�
       if (u && u.ok) return u;
     }
 
-    const hit = locateQuote(ch.content, quote);
+    /**
+     * 「重复」类要改的是**后出现的那一处**。
+     *
+     * 通用定位给的是第一处，而重复类的症状是"同一句在本章出现了两三次"——
+     * 改第一处等于没改：后面那处还在，复检照样报（作者看到的就是"这条怎么都修不掉"）。
+     * 所以这里先把所有出现位置找出来，命中两处以上就锁定最后一处。
+     */
+    const isDup = isDupIssue(issue);
+    let hit: { start: number; end: number; score?: number } | null = locateQuote(ch.content, quote);
+    const spots = isDup ? allQuoteSpots(ch.content, quote) : [];
+    if (spots.length >= 2) hit = spots[spots.length - 1];
     if (!hit) return { ok: false, reason: '正文里找不到这句话（可能已经被改掉了）', quote };
 
     const oldText = ch.content.slice(hit.start, hit.end);
+
+    /**
+     * 「重复」类先走代码去重，不用问 AI。
+     *
+     * 这类条目交给 AI"改写这一句"它多半原样退回（这句本身没写错），通用流程的
+     * "改后不能与原文相同"门槛就把整条判死 —— 作者看到的就是"这条怎么都修不掉"。
+     * 代码能做对的事不交给模型（也不烧额度）。
+     *
+     * 范围取**命中处所在整段**，而不是只收敛命中那一句：实测同一段里常挨着两处同源重复，
+     * 只改一处的话作者会看到"修过了但还重复"，复检又冒出新的那条。
+     */
+    if (isDup) {
+      const pStart = ch.content.lastIndexOf('\n', Math.max(0, hit.start - 1)) + 1;
+      const win = ch.content.slice(pStart, hit.end);
+      const deduped = dedupeAdjacentSegments(win);
+      if (deduped !== win) {
+        const c2 = ch.content.slice(0, pStart) + deduped + ch.content.slice(hit.end);
+        await this.prisma.chapter.update({ where: { id: chId }, data: { content: c2 } as any });
+        const back: any = await this.prisma.chapter.findUnique({ where: { id: chId } });
+        if (String(back.content || '') !== c2) {
+          await this.prisma.chapter.update({ where: { id: chId }, data: { content: ch.content } as any }).catch(() => undefined);
+          return { ok: false, reason: '写入后校验不通过，已还原', quote };
+        }
+        await this.markResolved(id, quote);
+        await this.resolveIssuesLike(id, quote).catch(() => undefined);
+        return { ok: true, quote, chapter: ch.order, oldText: win, newText: deduped, gain: PATCH_GAIN[issue.level] || 2 };
+      }
+    }
+
     const bible = n.bible ? JSON.parse(n.bible) : {};
     const canon = n.canon ? (JSON.parse(n.canon) as Canon) : null;
     const prompt = `你是网文责编，做一次「最小改动」的文字手术。
@@ -2500,7 +2607,7 @@ ${oldText}
 === 为什么算矛盾 ===
 ${issue.why || '（未说明）'}
 === 改法 ===
-${issue.fix || '（未说明）'}
+${isDup && spots.length >= 2 ? `${issue.fix || ''}（重要：这句话在本章出现了 ${spots.length} 次，你现在改的是**最后出现的那一处**。请换一种说法表达同样的信息 —— 调换语序、换同义词、换个叙述角度都行，但不要删掉信息、不要新增剧情。改后必须与原文明显不同，否则读者仍会觉得重复。）` : (issue.fix || '（未说明）')}
 === 这句话的上下文（仅供理解，不要复述） ===
 ${ch.content.slice(Math.max(0, hit.start - 150), Math.min(ch.content.length, hit.end + 260))}
 
@@ -2528,10 +2635,17 @@ ${ch.content.slice(Math.max(0, hit.start - 150), Math.min(ch.content.length, hit
      * 空结果被当成"AI 没给内容"，那条永远修不掉，作者看到的就是"这条没改成"反复出现。
      * 现在按改法判定：改法里写了删除，就允许 new 为空（= 删掉这一句）。
      */
-    const canDelete = /删除|删掉|删去|去掉|移除/.test(`${issue.fix || ''}${issue.why || ''}`);
+    // 改法里出现"删/精简/去重"这类字样就允许 new 为空（= 删掉这一句）。
+    // 「删减」「仅保留…」以前不在词表里 → AI 返回空被判"没给改后的句子"，重复类条目因此永远修不掉。
+    const canDelete = /删除|删掉|删去|去掉|移除|删减|精简|去重|压缩|合并|收敛|仅保留|只保留/.test(`${issue.fix || ''}${issue.why || ''}`);
     if (!out && !canDelete) return { ok: false, reason: 'AI 没给出改后的句子，这条没动', quote };
     if (out) {
-      if (diceSimilar(out, oldText) > 0.97) return { ok: false, reason: 'AI 返回的内容与原文一样，等于没改', quote };
+      // 重复类要求"真的换了说法"：门槛比通用类严（0.9 而不是 0.97），
+      // 因为只改一两个字时读者仍会觉得是重复，问题没解决
+      const sameLimit = isDup ? 0.9 : 0.97;
+      if (diceSimilar(out, oldText) > sameLimit) {
+        return { ok: false, reason: isDup ? 'AI 只是改了个别字，重复感还在，已放弃' : 'AI 返回的内容与原文一样，等于没改', quote };
+      }
       if (out.length > Math.max(60, oldText.length * 3)) return { ok: false, reason: 'AI 返回的远超这一句（会破坏正文），已丢弃', quote };
       if (out.length < Math.max(4, oldText.length * 0.35)) return { ok: false, reason: 'AI 返回的句子过短，已丢弃', quote };
     }
@@ -3172,8 +3286,10 @@ ${(ch.content || '').slice(0, 4000)}
 2) 时间线：本章内时间自相矛盾（"两小时"与"昨天"并存），或与上一章时间倒退
 3) 事实：与「已锁死」事实冲突；物品/身份/金钱数目前后不一致
 4) 伏笔：本章重复埋设已存在的伏笔
+认为"其实不矛盾 / 无需修改"的别报 —— issues 只放确认有问题且给出具体改法的条目，
+fix 必须是可执行动作（把 A 改成 B / 删除某句 / 改写某句），不能写"无需修改"。
 只输出 JSON：
-{"issues":[{"type":"人名|时间线|事实|伏笔","level":"高|中","quote":"原文逐字摘录(≤40字)","why":"为什么是矛盾","fix":"怎么改"}]}`;
+{"issues":[{"type":"人名|时间线|事实|伏笔|重复","level":"高|中","quote":"原文逐字摘录(≤40字)","why":"为什么是矛盾","fix":"怎么改"}]}`;
 
     let ai: any[] = [];
     try {
@@ -3239,13 +3355,16 @@ ${body.slice(-400)}
 硬性要求：
 1) 不要另起支线、不要时间线倒退、不要新增人物、不要改人名写法；
 2) **不要写新的章末钩子** —— 钩子留在章节最后一段，由原文承担；
-3) 不要复述已有内容，直接接着写。
+3) 不要复述已有内容，直接接着写；
+4) **直接写正文，禁止任何说明性文字** —— 不要写"（以下补字数…）""（说明：…）"这类
+   把写作要求复述出来的括号备注，也不要复述已有情节（那是重复，不是补写）。
 只输出 JSON：{"add":"补写的正文"}`;
     let add = '';
     try {
       const parsed = tryParseJson(await this.ai.chat(prompt, 150000), ['add']) || {};
       add = String(parsed.add || '').trim();
     } catch (e) { add = ''; }
+    add = stripPromptLeak(add);
     if (add.length < 80) return 0;
     const next = `${body.slice(0, split)}${add}\n${body.slice(split)}`.trim();
     await this.prisma.chapter.update({ where: { id: chId }, data: { content: next } as any });
