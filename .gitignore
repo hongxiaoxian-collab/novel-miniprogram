@@ -6,6 +6,8 @@ node_modules/
 backend/dist/
 dist/
 *.tsbuildinfo
+# 云函数部署包（含 node_modules，本地生成，不进代码仓）
+backend/cloudfunctions/*.zip
 
 # 本地数据库与备份（数据不进代码仓）
 backend/prisma/*.db
