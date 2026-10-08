@@ -18,6 +18,8 @@ import {
   DupFixDto,
   AuditResolveDto,
   PatchIssueDto,
+  PlanDto,
+  PickPlanDto,
 } from './novel.dto';
 
 @Controller('novel')
@@ -39,6 +41,27 @@ export class NovelController {
     return this.svc.recommendTopic(dto.platform);
   }
 
+  /**
+   * 【AI 选题】作者只给平台（可选一句话想法），书名 / 男频女频 / 题材 / 金手指全部由 AI 定。
+   * 返回占位作品 id，前端用 /novel/:id/jobs 轮询三步进度，跑完从 result.plans 拿 3-5 个方案。
+   */
+  @Post('plan')
+  createPlan(@Body() dto: PlanDto, @Headers('authorization') auth?: string) {
+    return this.svc.createPlanDraft(dto, uidFromHeader(auth));
+  }
+
+  /** 重读方案（页面被回收后回来接着挑） */
+  @Get('plan/:id')
+  getPlan(@Param('id') id: string) {
+    return this.svc.getPlan(id);
+  }
+
+  /** 选定第 idx 个方案（或按书名挑）→ 落到作品上，占位转正，之后走正常定版流程 */
+  @Post('plan/:id/pick')
+  pickPlan(@Param('id') id: string, @Body() dto: PickPlanDto) {
+    return this.svc.pickPlan(id, dto);
+  }
+
   /** AI 推荐笔名（≥3 个，可换一批）/ 代写作者简介（可重写） */
   @Post('author-assist')
   authorAssist(@Body() dto: AuthorAssistDto) {
@@ -56,6 +79,7 @@ export class NovelController {
     if (dto.kind === 'fix') return this.svc.startFixJob(id, dto.opinion);
     if (dto.kind === 'chapter') return this.svc.startChapterJob(id, dto.wordCount, dto.instruction, dto.count);
     if (dto.kind === 'outline') return this.svc.startOutlineJob(id, dto.opinion);
+    if (dto.kind === 'polish') return this.svc.startPolishJob(id);
     throw new Error('未知任务类型');
   }
 

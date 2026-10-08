@@ -224,3 +224,24 @@ export class PatchIssueDto {
 
   @IsOptional() chapter?: number;
 }
+
+/** AI 选题：作者只给平台（和可选的一句话想法），其余全部由 AI 定 */
+export class PlanDto {
+  @IsIn(['fanqie', 'qimao'])
+  platform: string;
+
+  @IsOptional() @IsString()
+  opinion?: string;
+
+  @IsOptional()
+  chapterWords?: number;
+}
+
+/** 作者从 AI 给的 3-5 个方案里挑一个 */
+export class PickPlanDto {
+  @IsOptional()
+  idx?: number;
+
+  @IsOptional() @IsString()
+  title?: string; // 也可以直接按书名挑（前端回传更稳）
+}

@@ -88,6 +88,29 @@ async function runJob(id, kind, onProgress, opts) {
   throw err;
 }
 
+/**
+ * 只轮询、不启动：任务由别的接口（如 POST /novel/plan）创建，这里只盯着它跑完。
+ * @param {(p:any)=>void} onProgress
+ */
+async function waitJob(id, onProgress, maxMs) {
+  const deadline = Date.now() + (maxMs || 20 * 60 * 1000);
+  let last = null;
+  while (Date.now() < deadline) {
+    await sleep(2500);
+    last = await request(`/novel/${id}/jobs`);
+    if (onProgress) onProgress(last);
+    if (last.stage === 'done') return last;
+    if (last.stage === 'failed') {
+      const err = new Error(last.error || '任务执行失败');
+      err.job = last;
+      throw err;
+    }
+  }
+  const err = new Error('任务仍在后台运行，稍后回来查看');
+  err.job = last;
+  throw err;
+}
+
 /** 进度文案：如「修复第 2 章（3 处） 2/5」 */
 function jobText(job) {
   if (!job) return '准备中…';
@@ -126,4 +149,4 @@ function progOf(title, p) {
   };
 }
 
-module.exports = { runFinalize, runningText, runJob, jobText, pctOf, progOf, STAGE_TEXT };
+module.exports = { runFinalize, runningText, runJob, waitJob, jobText, pctOf, progOf, STAGE_TEXT };

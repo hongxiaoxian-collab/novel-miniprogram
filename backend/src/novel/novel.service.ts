@@ -8,6 +8,7 @@ import {
   countResidual, insideCorrectName,
 } from '../common/text';
 import { SearchService } from './search.service';
+import { RANK_BOARD, renderRankBoard } from './rank-board';
 import { buildDocx, safeFileName, DocxSection } from '../common/docx';
 import { PLATFORMS, getPlatform, tagWhitelist } from '../platform/platform.config';
 import {
@@ -403,7 +404,10 @@ export class NovelService {
   async listNovels(platform?: string, uid?: string | null) {
     const base = platform ? { platform } : {};
     // 登录后仍要看到 userId 为空的历史作品：否则作者一登录就发现老作品"不见了"，会以为数据丢了
-    const where = uid ? { ...base, OR: [{ userId: uid }, { userId: null }] } : base;
+    // 「AI 选题」的占位作品（还没选定方案）不进列表：它不是一部书，只是选题任务的载体
+    const where = uid
+      ? { ...base, planDraft: false, OR: [{ userId: uid }, { userId: null }] }
+      : { ...base, planDraft: false };
     const list = await this.prisma.novel.findMany({ where, orderBy: { updatedAt: 'desc' } });
     // 【作者反馈·已修】列表"已写 6 章"、点进去只有 3 章：以前直接 _count 全部章节，
     // 连作废章节(stale)也算进去。这里改成只数有效章节，和章节目录（listChapters）口径一致。
@@ -470,6 +474,285 @@ export class NovelService {
     const parsed = tryParseJson(text, ['topics']);
     if (!parsed?.topics) throw new Error(`AI 未返回题材列表，原始输出：${text.slice(0, 200)}`);
     return { topics: parsed.topics };
+  }
+
+  // ==================== AI 选题：扫榜 → 差异化金手指 → 3-5 个完整方案 ====================
+
+  /**
+   * 【真扫榜】后端亲自联网抓番茄 / 七猫男频女频榜单，抓不到才退回本地快照。
+   *
+   * 为什么不让 AI "联网扫榜"：模型没有联网工具，让它写榜单 = 编书名编热度，
+   * 照着假榜单定题材比不扫更糟。这里由后端发真实请求抓证据，AI 只负责在真证据上做研读。
+   * 抓回来的书名顺手存进本地在榜库（HotBook），后面查重会更准。
+   */
+  private async scanBoard(platform: string): Promise<{ fresh: boolean; evidence: string; at: string }> {
+    const p = getPlatform(platform);
+    const queries = [
+      `${p.name} 男频 畅销榜 排行 前十`,
+      `${p.name} 女频 畅销榜 排行 前十`,
+      '番茄小说 男频 畅销榜 排行',
+      '七猫小说 男频 大热榜 排行',
+      '番茄小说 女频 畅销榜 排行',
+      '七猫小说 女频 大热榜 排行',
+      '网文 热门题材 趋势 开局',
+    ];
+    const groups = await Promise.all(queries.map((q) => this.search.search(q).catch(() => [])));
+    /**
+     * 【坑·已修】搜索"XX 畅销榜"回来的一大半是下载站 / 应用商店 / 短视频激励页这类 SEO 垃圾
+     * （实测抓到"微软商店PC端免费小说""抖音金币激励""全本免费下载"），
+     * 直接喂给 AI 会把选题带成《PC召史鬼写》这种根本不是网文的东西。
+     * 所以逐条过滤：带下载/商店/App/激励等词的、不像作品名的，一律丢掉。
+     */
+    const JUNK = /下载|全本|txt|TXT|微软|商店|抖音|金币|激励|安卓|iOS|APP|官网|笔趣|顶点|八一|爱下|无弹窗|免费阅读|书城|追书|排行榜单/;
+    const seen = new Set<string>();
+    const lines: string[] = [];
+    for (const hits of groups) {
+      for (const h of hits) {
+        const t = String(h.title || '').replace(/[《》]/g, '').trim();
+        const s = String(h.snippet || '');
+        if (!t || seen.has(t)) continue;
+        if (JUNK.test(t) || JUNK.test(s.slice(0, 40))) continue;
+        if (t.length > 30) continue; // 作品名不会这么长，多半是营销标题
+        seen.add(t);
+        lines.push(`- 《${t}》[${h.source}]${s ? '：' + s.slice(0, 90) : ''}`);
+        if (lines.length >= 20) break;
+      }
+      if (lines.length >= 20) break;
+    }
+    if (lines.length) this.search.collect(groups.flat() as any, '扫榜').catch(() => undefined);
+
+    const fresh = lines.length >= 4;
+    /**
+     * 本地快照**始终注入**：它是人工真扫、逐条核对过的（番茄男频四大分类榜 / 番茄女频 / 七猫男女频），
+     * 质量远高于搜索引擎抓回来的东西。联网结果只作增量补充，抓不到也不影响选题质量。
+     */
+    const base = `【本地榜单快照 · ${RANK_BOARD.updatedAt} 人工真扫核对（这是主证据）】\n${renderRankBoard()}\n\n`
+      + `【快照提炼的信号】\n`
+      + `在爆·男频：${(RANK_BOARD.signals.inMale || []).join(' / ')}\n`
+      + `在爆·女频：${(RANK_BOARD.signals.inFemale || []).join(' / ')}\n`
+      + `在爆开局套路：${(RANK_BOARD.signals.openers || []).join(' / ')}\n`
+      + `已降温：${(RANK_BOARD.signals.cooling || []).join(' / ')}\n`
+      + `跨平台规律：${(RANK_BOARD.signals.common || []).join(' / ')}`;
+    const evidence = fresh
+      ? `${base}\n\n【本次联网补充抓到的结果（仅供参考，严禁凭印象编造上面没有的作品名）】\n${lines.join('\n')}`
+      : `${base}\n\n【⚠ 本次联网没抓到可用结果（网络受限或全是下载站垃圾），请以本地快照为准】`;
+    return { fresh, evidence, at: new Date().toISOString().slice(0, 10) };
+  }
+
+  /** 建一个「AI 选题」占位作品（列表里不出现），并立刻启动扫榜任务 */
+  async createPlanDraft(dto: { platform: string; opinion?: string; chapterWords?: number }, uid?: string | null) {
+    // 只保留一个占位：作者反复点「AI 帮我选」不会堆出一串废作品
+    await this.prisma.novel.deleteMany({ where: { planDraft: true, jobStage: { not: 'running' } } as any });
+    const n: any = await this.prisma.novel.create({
+      data: {
+        platform: dto.platform,
+        title: 'AI 选题中',
+        chapterWords: dto.chapterWords || 2000,
+        planDraft: true,
+        userId: uid || null,
+      } as any,
+    });
+    // 【坑·已修】startJob 返回的是任务进度对象（本来就是给已有作品轮询用的），里面没有 id ——
+    // 前端拿不到作品 id 就没法轮询、没法选定方案。这里必须把 id 一起给出去。
+    const job: any = await this.startPlanJob(n.id, dto.opinion);
+    return { ...job, id: n.id };
+  }
+
+  /**
+   * 【AI 选题流水线】三步，全部由 AI 定，作者只负责最后挑一个：
+   * ① 扫榜研读（真联网 + 本地快照兜底）→ 在爆题材 / 开局套路 / 红海 / 空位
+   * ② 差异化金手指（找榜单没人写的空位，且必须带代价与边界）
+   * ③ 3-5 个完整开书方案（书名 / 男女频 / 题材 / 金手指 / 卖点 / 开篇钩子 / 黄金三章骨架）
+   */
+  async startPlanJob(id: string, opinion?: string) {
+    const n: any = await this.getNovel(id);
+    const p = getPlatform(n.platform);
+    const opinionLine = (opinion || '').trim() ? `\n【作者的一句话想法（必须落实，其余留白由你定）】${opinion}` : '';
+    const box: any = { board: null, cheats: [], plans: [] };
+
+    return this.startJob(id, 'plan', [
+      {
+        key: 'scan',
+        label: `扫榜：${p.name} 男频 / 女频 畅销榜`,
+        run: async () => {
+          const s = await this.scanBoard(n.platform);
+          const prompt = `你是网文平台资深责编，负责「扫榜研读」。目标平台=${p.name}。
+${s.evidence}
+${opinionLine}
+
+请研读上面这批榜单，输出**当下的市场判断**（不要复述榜单、不要编造上面没有的书）：
+1) hot：男频 / 女频各自"现在真在爆"的题材，各 4-6 条，每条写清"爆在哪一点"（如"求生叙事：航海/公路求生霸占番茄游戏榜前二"）
+2) openers：**必填**，现在最好用的开局套路 4-6 条，每条必须具体到"开篇第一件事是什么 / 前 300 字给读者什么"（空数组不可接受，至少 4 条）
+3) cooling：已经降温、别再写的红海 3-5 条
+4) gaps：**榜单上没人写满**的交叉空位 3-5 条（这是后面找差异化金手指的原料；要具体到"X 题材 × Y 设定"）
+
+只输出 JSON，不要解释：
+{"hot":{"男频":["..."],"女频":["..."]},"openers":["..."],"cooling":["..."],"gaps":["..."],"summary":"一句话市场判断（未联网时注明"数据为本地快照"）"}`;
+          const parsed = tryParseJson(await this.ai.chat(prompt, 150000), ['hot', 'gaps']) || {};
+          // 模型偶尔漏给开局套路（实测返回过空数组）——它是后面"开篇钩子"唯一的原料，
+          // 空了整条链就塌了，所以必须用快照里的真实结论兜底。
+          const openers = Array.isArray(parsed.openers) && parsed.openers.length >= 2
+            ? parsed.openers : RANK_BOARD.signals.openers;
+          const cooling = Array.isArray(parsed.cooling) && parsed.cooling.length
+            ? parsed.cooling : RANK_BOARD.signals.cooling;
+          box.board = {
+            fresh: s.fresh,
+            at: s.at,
+            hot: parsed.hot || {},
+            openers,
+            cooling,
+            gaps: Array.isArray(parsed.gaps) ? parsed.gaps : [],
+            summary: parsed.summary || '',
+          };
+          await this.prisma.novel.update({
+            where: { id },
+            data: { planJson: JSON.stringify({ ...box, step: 'scan' }) } as any,
+          });
+          const g = (box.board.gaps || []).length;
+          return `在爆题材 ${Object.values(box.board.hot).flat().length} 条 · 开局套路 ${box.board.openers.length} 条 · 空位 ${g} 条${s.fresh ? '' : '（本次未联网，用的本地快照）'}`;
+        },
+      },
+      {
+        key: 'cheat',
+        label: '找差异化金手指（避开红海）',
+        run: async () => {
+          const b = box.board || {};
+          const prompt = `你是网文开书策划，负责「差异化金手指」。平台=${p.name}。
+【刚扫出来的市场判断】
+在爆题材：${JSON.stringify(b.hot || {})}
+开局套路：${(b.openers || []).join(' / ')}
+红海（别碰）：${(b.cooling || []).join(' / ')}
+空位：${(b.gaps || []).join(' / ')}
+${opinionLine}
+
+请给 **5 个差异化金手指**，每一个都要：
+- 从上面的"空位"里长出来，避开"红海"里那几类；
+- 有**明确的代价 / 边界**（无代价的无敌金手指读者三章就腻，必须写清限制或反噬）；
+- 说清它为什么能给读者持续爽点（能反复触发、能升级、能制造冲突），不是一次性道具。
+
+只输出 JSON：
+{"cheats":[{"name":"金手指名(2-8字)","mech":"机制：怎么触发、得到什么","cost":"代价/边界","why":"差异化在哪：避开了榜单上哪类写法","channel":"男频|女频","genre":"题材(2-6字)","loop":"爽点循环：读者为什么会一直追"}]}`;
+          const parsed = tryParseJson(await this.ai.chat(prompt, 150000), ['cheats']) || {};
+          box.cheats = Array.isArray(parsed.cheats) ? parsed.cheats.slice(0, 6) : [];
+          await this.prisma.novel.update({
+            where: { id },
+            data: { planJson: JSON.stringify({ ...box, step: 'cheat' }) } as any,
+          });
+          return box.cheats.length ? `${box.cheats.length} 个金手指` : 'AI 没给出金手指，方案将直接基于空位生成';
+        },
+      },
+      {
+        key: 'plans',
+        label: '出 3-5 个完整开书方案（书名 / 频道 / 题材 全定）',
+        run: async () => {
+          const b = box.board || {};
+          const cheats = (box.cheats || []).filter((c: any) => c && c.name);
+          const prompt = `你是网文开书总策划。平台=${p.name}。现在要一次性定下一部新书的全部要件 —— **书名、男频/女频、题材、金手指全部由你定**，作者只从你给的 4 个方案里挑一个。
+【市场判断】${b.summary || ''}
+在爆题材：${JSON.stringify(b.hot || {})}
+开局套路：${(b.openers || []).join(' / ')}
+红海：${(b.cooling || []).join(' / ')}
+【可选金手指（优先从这里挑，也可以组合/改良）】
+${cheats.map((c: any, i: number) => `${i + 1}) ${c.name}｜${c.mech}｜代价：${c.cost}｜${c.channel}·${c.genre}`).join('\n') || '（无，请自行设计）'}
+${opinionLine}
+
+请给 **4 个完整开书方案**，硬性要求：
+1) **男女频都要有**（至少各 1 个），题材不许重复，金手指不许重复；
+2) 书名要像${p.name}在售的网文（如「重生1998：XXX」「开局XXX」「穿成XXX后」这类），12 字以内、带钩子；
+   4 个之间不得近似，也不许与上面榜单出现过的作品重名/近名；
+3) 开篇钩子必须是**具体发生的一件事**（不是"他将何去何从"这类空话），且前 300 字就发生；
+4) 黄金三章骨架要写到"每章一件什么事、章末留什么钩"，第三章末必须抛出全书核心悬念；
+5) 每个方案用一句话说明"为什么这个能打"（结合上面的空位/在爆题材）。
+
+【⚠ 三条红线（踩了整个方案作废）】
+- **不许写"写小说的小说"**：主角是网文作者 / 编辑 / 靠"签约""曝光权重""编辑隐批""读者打赏"推动剧情，一律不行 —— 读者要看的是故事里的世界，不是网文行业本身。
+- **不许把现代互联网产品写进设定**：什么 PC 端、App、抖音金币、微软商店、听书音波、短剧天道，都不是网文设定，不许出现在书名、金手指与剧情里。
+- **金手指必须服务于故事里的冲突**：能反复触发、能升级、能制造麻烦；代价要落在主角身上（寿命/记忆/身体/关系），不是"系统提示"这种没有痛感的限制。
+- **所有字段一律中文**：书名、卖点、钩子、章纲里不许出现英文单词（模型偶尔会漏出 protector 这类词，读者一眼看出是机器写的）。
+
+只输出 JSON：
+{"plans":[{"title":"书名","channel":"男频|女频","genre":"题材(2-6字)","cheat":"金手指名","cheatMech":"机制+代价","sellPoint":"一句话卖点(≤30字)","hook":"开篇钩子：前300字发生的具体事件","chapters":[{"no":1,"name":"章名(2-8字)","synopsis":"本章发生什么(≤60字)","cliffhanger":"章末钩子"}],"why":"为什么这个能打(≤50字)"}]}`;
+          let parsed = tryParseJson(await this.ai.chat(prompt, 180000), ['plans']) || {};
+          let plans: any[] = Array.isArray(parsed.plans) ? parsed.plans : [];
+          // 书名撞车本地预检：与本地在榜库 + 本次榜单快照比对，撞车的排到后面并标注
+          plans = await Promise.all(plans.map(async (x: any) => {
+            const t = cleanTitle(String(x.title || ''));
+            if (!t) return null;
+            const local = await this.search.localMatches(t, 0.7).catch(() => []);
+            const boardHit = local.length ? local[0].title : '';
+            return { ...x, title: t, dupRisk: boardHit ? 'high' : 'low', dupNote: boardHit ? `与在榜作品《${boardHit}》近似` : '' };
+          })) as any[];
+          plans = plans.filter(Boolean).sort((a: any, b: any) => (a.dupRisk === 'high' ? 1 : 0) - (b.dupRisk === 'high' ? 1 : 0));
+          box.plans = plans.slice(0, 5);
+          await this.prisma.novel.update({
+            where: { id },
+            data: { planJson: JSON.stringify({ ...box, step: 'plans' }) } as any,
+          });
+          return box.plans.length ? `${box.plans.length} 个方案${box.plans.some((x: any) => x.dupRisk === 'high') ? '（有书名可能撞车，已排后并标注）' : ''}` : 'AI 没产出方案，请再点一次';
+        },
+      },
+    ]);
+  }
+
+  /**
+   * 削掉夹在中文里的孤立英文单词（模型偶尔漏出 `扳倒 protector` 这种）。
+   * 常见缩写（GPS / DNA / QQ …）要留下，只删"前后都不是英文、也没有语境"的裸词。
+   */
+  private stripStrayWords(s: string): string {
+    const KEEP = /^(GPS|DNA|RNA|WiFi|WIFI|QQ|AI|IP|OK|MBA|CPU|USB|DNA|KTV|BBQ|CEO|CIA|FBI)$/;
+    return String(s || '')
+      .replace(/([一-龥，。、；：！？])\s*([A-Za-z]{2,})\s*(?=[，。、；：！？\s]|$)/g,
+        (_m, a, w) => (KEEP.test(w) ? `${a} ${w} ` : a))
+      .replace(/\s{2,}/g, ' ');
+  }
+
+  /** 作者选定一个方案：落到作品上（书名 / 频道 / 题材 / 金手指 / 卖点 / 三章骨架 → 大纲），占位转正 */
+  async pickPlan(id: string, dto: { idx?: number; title?: string }) {
+    const n: any = await this.getNovel(id);
+    let box: any = {};
+    try { box = n.planJson ? JSON.parse(n.planJson) : {}; } catch (e) { box = {}; }
+    const plans = Array.isArray(box.plans) ? box.plans : [];
+    // 优先按下标挑；下标丢了（页面被回收）就退回按书名挑 —— 两条路都要能走通
+    const want = cleanTitle(String(dto.title || ''));
+    const pick = plans[Number(dto.idx)]
+      || plans.find((x: any) => cleanTitle(String(x.title || '')) === want);
+    if (!pick) throw new Error('方案不存在，请重新让 AI 出一批');
+    const channel = String(pick.channel || '');
+    const targetReader = n.platform === 'qimao'
+      ? (/女/.test(channel) ? '女生' : '男生')
+      : (/女/.test(channel) ? '女频' : '男频');
+    const outline = [
+      `【金手指】${pick.cheat || ''}：${pick.cheatMech || ''}`,
+      `【一句话卖点】${pick.sellPoint || ''}`,
+      `【开篇钩子】${pick.hook || ''}`,
+      '',
+      '【黄金三章骨架】',
+      ...(Array.isArray(pick.chapters) ? pick.chapters : []).map((c: any) =>
+        `第${c.no}章 ${c.name || ''}：${c.synopsis || ''}（章末钩子：${c.cliffhanger || ''}）`),
+      '',
+      `【为什么能打】${pick.why || ''}`,
+    ].join('\n');
+    const cleanOutline = this.stripStrayWords(outline);
+
+    const updated = await this.prisma.novel.update({
+      where: { id },
+      data: {
+        title: cleanTitle(pick.title),
+        genre: pick.genre || '',
+        targetReader,
+        sellPoint: this.stripStrayWords(pick.sellPoint || ''),
+        outline: cleanOutline,
+        planDraft: false,
+        dupAccepted: cleanTitle(pick.title), // 锁死：后面重出大纲不许把作者选的名字改回去
+      } as any,
+    });
+    return { ...updated, plan: pick };
+  }
+
+  /** 重读方案（作者点「换一批」/ 页面上方案丢了时用） */
+  async getPlan(id: string) {
+    const n: any = await this.getNovel(id);
+    try { return n.planJson ? JSON.parse(n.planJson) : null; } catch (e) { return null; }
   }
 
   // ==================== 笔名推荐 / 作者简介（首次引导与作品资料页共用） ====================
@@ -1852,6 +2135,96 @@ ${lines}${dupLine}
     }
     await this.dedupeChapters(id); // 写完再兜一次：万一还有并发/重试留下的重复章，这里清掉
     return done;
+  }
+
+  /**
+   * 【文字打磨】机器先挑毛病，AI 只改文字与节奏、情节一个字不许动。
+   *
+   * 和「体检」的分工：体检管**矛盾**（人名/时间线/事实/重复），打磨管**好不好看**
+   * （字数、分段、去 AI 味、章末钩子）。以前只有体检，稿子"没矛盾"但读起来发飘、章末没钩，
+   * 作者拿去上架还是没人追。所以定版后要单独打磨一遍。
+   *
+   * 只让 AI 改文字不改情节，是为了收敛：改情节会牵动人名、伏笔、台账，越改越乱。
+   */
+  private polishFindings(content: string, words: number): string[] {
+    const t = String(content || '');
+    const out: string[] = [];
+    const len = t.replace(/\s/g, '').length;
+    if (!len) return ['本章没有正文'];
+    if (len < words * 0.9) out.push(`字数不足：现在 ${len} 字，目标 ${words} 字`);
+    const paras = t.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+    if (paras.length < 45) out.push(`段落只有 ${paras.length} 段：网文要短段快节奏，2000 字至少要 45-50 段`);
+    const longs = paras.filter((p) => p.length > 100).length;
+    if (longs) out.push(`有 ${longs} 段超过 100 字，手机上是一整屏黑压压的字，要拆开`);
+    const le = (t.match(/了/g) || []).length;
+    if (len > 500 && le / len > 0.035) out.push(`"了"字密度 ${(le / len * 100).toFixed(1)}%（偏高），读起来发飘`);
+    const dash = (t.match(/——/g) || []).length;
+    if (dash > 3) out.push(`破折号用了 ${dash} 次（超过 3 次显得刻意）`);
+    if (/(第[一二三])[条天名]/.test(t)) out.push('出现"第一条/第二天"这类机械排比，要融进自然叙述');
+    const tail = t.slice(-150);
+    if (/他不知道|她不知道|这将|从此|命运|或许|也许|也许这就是/.test(tail)) {
+      out.push('章末在总结感慨，不是钩子：要换成一件"具体发生的事"（动作 / 对白 / 新信息）');
+    }
+    if (!/[？?！!]/.test(tail) && !/(说|喊|道|问|喝|笑)[：:"“”]/.test(tail)) {
+      out.push('章末没有对话或强动作，钩子不够硬');
+    }
+    return out;
+  }
+
+  /** 打磨一章：有问题就让 AI 改一版，改完复检。返回有没有真改动 */
+  private async polishChapterOnce(id: string, chId: string, words: number) {
+    const ch: any = await this.prisma.chapter.findUnique({ where: { id: chId } });
+    if (!ch || !ch.content) return { changed: false, note: '章节没有正文' };
+    const findings = this.polishFindings(ch.content, words);
+    if (!findings.length) return { changed: false, note: '文字达标，无需打磨' };
+
+    const prompt = `你是网文资深责编，负责**最后一遍文字打磨**。
+【这一章现在的问题（机器逐条查出来的，必须全部解决）】
+${findings.map((f, i) => `${i + 1}) ${f}`).join('\n')}
+
+【硬性要求】
+1) **只改文字、节奏、分段**：情节、人物、对白内容、时间线、专有名词一个字都不许变。改情节会越改越乱，一律不许。
+2) 字数必须 ≥ ${words} 字，段落 ≥ 45 段，单段 ≤ 100 字；人物开口说话单独成段。
+3) 去 AI 味：少用"了"，破折号不超过 3 个，不要"第一条/第二天"式机械排比，不要格言式收尾。
+4) 章末 100 字内必须留一件**具体发生的事**（动作 / 对白 / 新信息）当钩子，不许用景物收束或心情感慨代替。
+5) 直接输出**改后完整正文**，不要章节标题、不要任何说明、不要代码块。
+
+【原正文】
+${ch.content}`;
+    const text = String(await this.ai.chat(prompt, 180000) || '')
+      .replace(/```[a-z]*\s*/gi, '')
+      .replace(/```/g, '')
+      .trim();
+    // AI 偷懒只给片段（比原文短太多）→ 宁可不改，也不能把正文写残
+    if (text.length < ch.content.length * 0.8) return { changed: false, note: 'AI 返回的正文过短，已放弃本次打磨' };
+    await this.prisma.chapter.update({ where: { id: chId }, data: { content: text } as any });
+    const left = this.polishFindings(text, words);
+    return { changed: true, note: `改了 ${findings.length} 处问题${left.length ? `，还剩 ${left.length} 处` : '，已达标'}` };
+  }
+
+  /** 打磨黄金前三章（每章最多 2 轮）：定版后单独点，把开篇磨到能直接上架 */
+  async startPolishJob(id: string) {
+    const n: any = await this.getNovel(id);
+    const chapters = await this.prisma.chapter.findMany({
+      where: { novelId: id, stale: false } as any,
+      orderBy: { order: 'asc' },
+    });
+    const golden = chapters.filter((c: any) => Number(c.order) <= 3);
+    if (!golden.length) throw new Error('还没有正文，请先定版生成黄金三章');
+    return this.startJob(id, 'polish', golden.map((c: any) => ({
+      key: `ch${c.order}`,
+      label: `打磨第 ${c.order} 章《${stripChapterNo(c.title)}》`,
+      run: async () => {
+        let note = '';
+        for (let r = 1; r <= 2; r++) {
+          const res = await this.polishChapterOnce(id, c.id, n.chapterWords || 2000);
+          note = res.note || '';
+          if (!res.changed) break;
+          if (/已达标/.test(note)) break;
+        }
+        return note || '已打磨';
+      },
+    })));
   }
 
   /**

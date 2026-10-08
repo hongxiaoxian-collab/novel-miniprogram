@@ -1,7 +1,7 @@
 const app = getApp();
 const { request } = require('../../utils/request');
 const { copy } = require('../../utils/clipboard');
-const { runFinalize, runningText, runJob, jobText, progOf } = require('../../utils/task');
+const { runFinalize, runningText, runJob, waitJob, jobText, progOf } = require('../../utils/task');
 const { getPen, ensurePen } = require('../../utils/pen');
 
 const DEFAULT_TOPICS = ['都市', '玄幻', '悬疑', '历史', '科幻', '重生', '机械'];
@@ -49,6 +49,13 @@ Page({
     draftTip: '',         // 恢复进度提示
     staleTip: '',         // 换名/改大纲后旧章节作废提示
     pen: '',
+    // ---- AI 扫榜选题：作者只给平台，书名/男女频/题材/金手指全由 AI 定 ----
+    planMode: false,      // true=正在看 AI 给的 3-5 个方案
+    plan: null,           // {board:{...}, cheats:[...], plans:[...]}
+    planId: '',
+    planLoading: false,
+    planOpinion: '',      // 作者的一句话想法（可选，其余全交给 AI）
+    polishNote: '',       // 黄金三章打磨结果
   },
   onLoad(q) {
     this.enterId = (q && q.id) || ''; // 进入时的作品 id，页面状态被回收时可兜底
@@ -66,7 +73,10 @@ Page({
   freshStart() {
     this.clearDraft();
     app.globalData.novelId = '';
-    this.setData({ novelId: '', draftTip: '', step: 1, outline: null, titleEdit: '', dupReport: null });
+    this.setData({
+      novelId: '', draftTip: '', step: 1, outline: null, titleEdit: '', dupReport: null,
+      planMode: false, plan: null, planId: '', polishNote: '',
+    });
   },
   /**
    * 当前作品 id。三级回退：页面状态 → 全局 → 进入时的 URL 参数。
@@ -92,7 +102,7 @@ Page({
       platform: d.platform, step: d.step, genres: d.genres, genre: d.genre,
       genreText: d.genreText, reader: d.reader, contract: d.contract,
       chapterWords: d.chapterWords, novelId: d.novelId, outline: d.outline,
-      titleEdit: d.titleEdit, ts: Date.now(),
+      titleEdit: d.titleEdit, planId: d.planId, planMode: d.planMode, ts: Date.now(),
     };
     try { wx.setStorageSync(DRAFT_KEY, draft); } catch (e) { /* 忽略 */ }
   },
@@ -122,9 +132,18 @@ Page({
       novelId: d.novelId || '',
       outline: d.outline || null,
       titleEdit: d.titleEdit || '',
+      planId: d.planId || '',
+      planMode: !!d.planMode,
       draftTip: '已恢复上次没走完的进度',
     });
     if (d.novelId) app.globalData.novelId = d.novelId;
+    // 恢复到"正在看 AI 方案"这一步：方案存在服务端，拉回来接着挑，不用重新扫一遍榜
+    if (d.planId && d.planMode) {
+      request(`/novel/plan/${d.planId}`).then((plan) => {
+        if (plan && (plan.plans || []).length) this.setData({ plan, planMode: true });
+        else this.setData({ planMode: false });
+      }).catch(() => this.setData({ planMode: false }));
+    }
     this.setData({ readerOptions: d.platform === 'qimao' ? ['男生', '女生'] : ['男频', '女频'] });
     wx.setNavigationBarColor({
       frontColor: '#ffffff',
@@ -234,6 +253,106 @@ Page({
       wx.showToast({ title: '推荐失败', icon: 'none' });
     }
     wx.hideLoading();
+  },
+
+  // ---------- AI 扫榜选题：书名 / 男女频 / 题材 / 金手指 全部由 AI 定 ----------
+  onPlanOpinion(e) { this.setData({ planOpinion: e.detail.value }); },
+  /**
+   * 一键：真扫榜（番茄/七猫男频女频）→ 找差异化金手指 → 出 3-5 个完整方案。
+   * 作者在这一步只选平台（可选一句话想法），其余全交给 AI，最后从卡片里挑一本。
+   */
+  async aiPlan() {
+    if (this.data.planLoading) return;
+    this.setData({ planLoading: true });
+    const pTitle = 'AI 扫榜选题（扫榜 → 金手指 → 出方案）';
+    this.startProg(pTitle);
+    wx.showLoading({ title: 'AI 扫榜中…', mask: true });
+    try {
+      const r = await request('/novel/plan', 'POST', {
+        platform: this.data.platform,
+        opinion: this.data.planOpinion || undefined,
+        chapterWords: this.data.chapterWords,
+      });
+      const id = r.id;
+      app.globalData.novelId = id;
+      this.setData({ planId: id, novelId: id });
+      const job = await waitJob(id, (j) => {
+        const t = jobText(j);
+        this.setData({ taskText: t });
+        this.onProg(pTitle, j);
+        wx.showLoading({ title: String(t).slice(0, 13), mask: true });
+      }, 12 * 60 * 1000);
+      const plan = (job && job.result) || await request(`/novel/plan/${id}`);
+      this.endProg();
+      wx.hideLoading();
+      this.setData({ plan, planMode: true, planLoading: false, taskText: '' });
+      this.saveDraft();
+    } catch (e) {
+      this.endProg();
+      wx.hideLoading();
+      this.setData({ planLoading: false, taskText: '' });
+      wx.showToast({ title: (e && e.message) || '扫榜失败，再点一次', icon: 'none', duration: 2500 });
+    }
+  },
+  backToTopic() { this.setData({ planMode: false }); },
+
+  /** 选定第 i 个方案：落到作品上（书名/频道/题材/金手指/大纲），占位转正，进第④步可定版 */
+  async pickPlan(e) {
+    const idx = Number(e.currentTarget.dataset.i);
+    const id = this.data.planId || this.curId();
+    const plans = (this.data.plan && this.data.plan.plans) || [];
+    if (!id || !plans[idx] || this.data.planLoading) return;
+    this.setData({ planLoading: true });
+    wx.showLoading({ title: '正在落定这本…', mask: true });
+    try {
+      const n = await request(`/novel/plan/${id}/pick`, 'POST', { idx, title: plans[idx].title });
+      wx.hideLoading();
+      app.globalData.novelId = id;
+      this.setData({
+        novelId: id,
+        planMode: false,
+        planLoading: false,
+        plan: null,
+        genres: String(n.genre || '').split('·').filter(Boolean),
+        genre: n.genre || '',
+        genreText: String(n.genre || '').replace(/·/g, '、'),
+        reader: n.targetReader || '',
+        contract: n.contractStatus || 'signing',
+        step: 4,
+      });
+      this.applyOutline({ title: n.title, sellPoint: n.sellPoint || '', outline: n.outline || '', staleCount: 0 });
+      this.saveDraft();
+      wx.showToast({ title: '已选定，可点定版', icon: 'success', duration: 2000 });
+      this.runCheckDup(true);
+    } catch (err) {
+      wx.hideLoading();
+      this.setData({ planLoading: false });
+      wx.showToast({ title: (err && err.message) || '选定失败，再点一次', icon: 'none', duration: 2500 });
+    }
+  },
+
+  /** 精写打磨黄金三章：定版之后把开篇磨到能直接上架（字数/分段/去 AI 味/章末钩子） */
+  async polishGolden() {
+    const id = this.needId();
+    if (!id) return;
+    this.setData({ loading: true });
+    const pTitle = '精写打磨黄金三章';
+    this.startProg(pTitle);
+    try {
+      const job = await runJob(id, 'polish', (j) => {
+        this.setData({ taskText: jobText(j) });
+        this.onProg(pTitle, j);
+      });
+      this.endProg();
+      const note = ((job && job.steps) || [])
+        .map((s) => `${s.status === 'done' ? '✓' : '○'} ${s.label}：${s.note || s.error || ''}`).join('\n');
+      this.setData({ loading: false, polishNote: note, taskText: '' });
+      wx.showModal({ title: '黄金三章已打磨', content: note || '已完成', showCancel: false, confirmText: '知道了' });
+    } catch (e) {
+      this.endProg();
+      this.setData({ loading: false, taskText: '' });
+      wx.showToast({ title: (e && e.message) || '打磨失败，再点一次', icon: 'none', duration: 2500 });
+    }
   },
 
   // ---------- 步骤 2/3 ----------

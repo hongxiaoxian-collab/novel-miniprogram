@@ -37,9 +37,55 @@ module.exports.has = function (arr, v) {
 <view wx:if="{{draftTip}}" class="draft-tip">{{draftTip}}（第 {{step}} 步 · 题材：{{genreText}}）</view>
 <view wx:if="{{staleTip}}" class="dup-step" style="border-left-color:#faad14">{{staleTip}}</view>
 
+<!-- 步骤1-A：AI 扫榜选题（书名 / 男女频 / 题材 / 金手指 全由 AI 定，作者只挑一本） -->
+<view wx:if="{{step===1 && planMode}}" class="card">
+  <view class="card-h">① AI 扫榜选题<text class="muted" style="font-size:24rpx;font-weight:400">（书名 / 男女频 / 题材 / 金手指 都是 AI 定的）</text></view>
+
+  <!-- 扫榜结论 -->
+  <block wx:if="{{plan.board}}">
+    <view class="label">扫榜结论{{plan.board.fresh ? '（本次真联网抓取）' : '（本次未联网，用的本地榜单快照）'}}</view>
+    <view class="muted">{{plan.board.summary}}</view>
+    <block wx:if="{{plan.board.gaps.length}}">
+      <view class="label" style="margin-top:12rpx">榜单空位（差异化就是从这里长出来的）</view>
+      <view class="muted" wx:for="{{plan.board.gaps}}" wx:key="*this">· {{item}}</view>
+    </block>
+  </block>
+
+  <view class="label" style="margin-top:16rpx">从下面挑一本（3-5 个方案，男女频都有）</view>
+  <block wx:for="{{plan.plans}}" wx:key="title">
+    <view class="dup" style="border-left-color:#07c160;margin-bottom:20rpx">
+      <view class="pick">
+        <view class="pick-main">
+          <text wx:if="{{index===0}}" class="pick-badge">推荐</text>
+          <text class="pick-name">《{{item.title}}》</text>
+          <text class="muted" style="margin-left:8rpx">{{item.channel}} · {{item.genre}}</text>
+        </view>
+      </view>
+      <view class="muted" style="margin:6rpx 0 0 8rpx;color:#07a352">💎 金手指「{{item.cheat}}」：{{item.cheatMech}}</view>
+      <view class="muted" style="margin:6rpx 0 0 8rpx">🎯 {{item.sellPoint}}</view>
+      <view class="muted" style="margin:6rpx 0 0 8rpx">🪝 开篇钩子：{{item.hook}}</view>
+      <block wx:if="{{item.chapters.length}}">
+        <view class="muted" style="margin:10rpx 0 0 8rpx;color:#555">黄金三章骨架：</view>
+        <view class="muted" style="margin:2rpx 0 0 20rpx" wx:for="{{item.chapters}}" wx:for-item="c" wx:key="no">第{{c.no}}章《{{c.name}}》{{c.synopsis}}｜章末：{{c.cliffhanger}}</view>
+      </block>
+      <view class="muted" style="margin:8rpx 0 0 8rpx;color:#8a6d00">为什么能打：{{item.why}}</view>
+      <view wx:if="{{item.dupRisk==='high'}}" class="muted" style="margin:6rpx 0 0 8rpx;color:#e64340">⚠ {{item.dupNote}}（建议换一个）</view>
+      <view class="btn" style="margin-top:14rpx" data-i="{{index}}" bindtap="pickPlan">就这本 →</view>
+    </view>
+  </block>
+
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="aiPlan">↻ 换一批（重新扫榜）</view>
+  <view class="btn ghost" bindtap="backToTopic">← 还是自己选题材</view>
+</view>
+
 <!-- 步骤1 题材（可多选） -->
-<view wx:if="{{step===1}}" class="card">
+<view wx:if="{{step===1 && !planMode}}" class="card">
   <view class="card-h">① 选题材<text class="muted" style="font-size:24rpx;font-weight:400">（可多选，再点一次取消）</text></view>
+
+  <!-- AI 全包：扫榜 → 差异化金手指 → 3-5 个完整方案，书名男女频题材全由 AI 定 -->
+  <view class="btn {{platform==='qimao'?'blue':''}}" style="margin-bottom:8rpx" bindtap="aiPlan">🤖 AI 全包：扫榜 → 找金手指 → 给 3-5 本让我挑</view>
+  <input value="{{planOpinion}}" bindinput="onPlanOpinion" placeholder="一句话想法（可留空，其余全交给 AI）" style="border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx;margin-bottom:16rpx" />
+  <view class="muted" style="margin-bottom:12rpx">— 或者自己选 —</view>
   <view class="tagrow">
     <view class="chip {{platform==='qimao'?'blue':''}} {{u.has(genres,item)?'on':''}}" wx:for="{{topics}}" wx:key="*this" data-t="{{item}}" bindtap="pickTopic"><text wx:if="{{u.has(genres,item)}}" class="tick">✓</text>{{item}}</view>
   </view>
@@ -217,6 +263,10 @@ module.exports.has = function (arr, v) {
   </view>
 
   <view class="btn" bindtap="finalize">✓ 定版：全书脉络 + 分卷时间线 + 黄金1-3章</view>
+
+  <!-- 精写打磨：定版之后把开篇磨到能直接上架（字数 / 分段 / 去 AI 味 / 章末钩子） -->
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="polishGolden">✨ 精写打磨黄金三章（磨完再上架）</view>
+  <view wx:if="{{polishNote}}" class="muted" style="margin-top:8rpx;white-space:pre-wrap">{{polishNote}}</view>
 
   <!-- 定版进度 -->
   <view wx:if="{{steps.length}}" class="task">

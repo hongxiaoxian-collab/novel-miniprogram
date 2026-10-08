@@ -73,6 +73,9 @@ model Novel {
   dupCheckedAt  DateTime? // 上次联网查重的时间
   dupCheckedKey String?  // 查重时的内容指纹（书名|大纲长度|脉络长度）：指纹没变就复用，避免"上面说没撞、定版说撞了"
   canon         String?  // JSON：事实台账（累积快照）。写稿时强制注入，防止主角改名 / 时间线错乱 / 设定漂移
+  // ---- AI 选题（扫榜 → 差异化金手指 → 3-5 个完整方案）----
+  planDraft     Boolean  @default(false) // true=「AI 选题」占位作品，作者还没选定方案，列表里不出现
+  planJson      String?  // JSON：扫榜结论 + 3-5 个完整开书方案
   // ---- 通用后台任务（体检 / 自动修复 / 续更 / 出大纲；退出小程序也继续跑，前端轮询进度）----
   jobKind       String?  // audit | fix | chapter | outline
   jobStage      String?  // running | done | failed（空闲为 null）
