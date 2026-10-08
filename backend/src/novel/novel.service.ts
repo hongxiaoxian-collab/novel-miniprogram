@@ -4,7 +4,8 @@ import { AiService } from '../ai/ai.service';
 import { tryParseJson, looseStringField } from '../common/json.util';
 import {
   diceSimilar, titleStruct, locateQuote, allQuoteSpots, normQuote, midDiff, looksLikeName,
-  dedupeAdjacentSegments, stripPromptLeak,
+  dedupeAdjacentSegments, stripPromptLeak, replaceWithSeamDedup,
+  countResidual, insideCorrectName,
 } from '../common/text';
 import { SearchService } from './search.service';
 import { buildDocx, safeFileName, DocxSection } from '../common/docx';
@@ -1804,7 +1805,13 @@ ${lines}${dupLine}
       if (!old || old.length < 2) return;
       const to = renamed[old] || '';
       chapters.forEach((c) => {
-        const cnt = String(c.content || '').split(old).length - 1;
+        /**
+         * 必须排除"落在正确写法内部"的误命中（详见 insideCorrectName）：
+         * `陈建国眉头一皱` 里能数出 1 处「建国眉」，但它只是正确人名的后半截 + 后边一个字，
+         * 报出来并照改会把「眉」删掉、正文变 `陈陈建国头一皱`。
+         * 这类条目正是作者说的"改不动 / 改了更糟"，一条都不能报。
+         */
+        const cnt = countResidual(String(c.content || ''), old, to);
         if (cnt <= 0) return;
         out.push({
           level: '中', type: '人名', chapter: c.order, hard: true,
@@ -2324,8 +2331,28 @@ quote 必须能在正文里逐字找到；只能概括、找不出原句的就�
      * 放在收尾里做，是因为这条路径同时覆盖实时体检、缓存命中和读回旧报告 ——
      * 已经存在的老清单也会立刻变干净，不必重跑 AI。
      */
+    const byOrder = new Map<number, any>();
+    chapters.forEach((c) => byOrder.set(Number(c.order), c));
+
+    /**
+     * 再剔掉「旧写法残留」里的**误命中**条目。
+     *
+     * 实测：`陈建国眉头一皱` 里能数出 1 处「建国眉」（正确人名的后半截 + 后边一个字），
+     * 于是清单挂着"第 4 章还有 1 处「建国眉」"，点修就把「眉」删掉、正文变 `陈陈建国头一皱`。
+     * 这类条目改法写得斩钉截铁（"代码直接改，不用 AI"），实际一改就坏，是清单里最毒的一类。
+     * 判据与扫描端一致（countResidual）：真残留数为 0 就是误命中，直接剔掉。
+     * 放在这里同样是"一处修改、已经存下来的老清单立刻生效"。
+     */
+    const isFalseResidual = (x: any): boolean => {
+      const dep = String((x && x.deprecated) || '');
+      if (!dep || dep.length < 2 || !(Number(x.chapter) > 0)) return false;
+      const c = byOrder.get(Number(x.chapter));
+      if (!c) return false;
+      return countResidual(String(c.content || ''), dep, String(x.to || '')) === 0;
+    };
+
     const raw = Array.isArray(r.issues) ? r.issues : [];
-    const kept = raw.filter((x: any) => !isNonIssue(x));
+    const kept = raw.filter((x: any) => !isNonIssue(x) && !isFalseResidual(x));
     if (kept.length !== raw.length) {
       const risk = (r.dup || {}).risk || 'low';
       // 分数按"扣分制差值"平移：老报告存的是 AI 印象分，直接换算法会"修好反而降分"
@@ -2336,8 +2363,6 @@ quote 必须能在正文里逐字找到；只能概括、找不出原句的就�
       r.droppedNotIssue = (Number(r.droppedNotIssue) || 0) + (raw.length - kept.length);
     }
 
-    const byOrder = new Map<number, any>();
-    chapters.forEach((c) => byOrder.set(Number(c.order), c));
     (r.issues || []).forEach((x: any) => {
       /**
        * 「旧写法残留」类**不靠定位原句**：它走的是重命名映射表（`deprecated → to`，全书一次换干净）。
@@ -2450,12 +2475,16 @@ quote 必须能在正文里逐字找到；只能概括、找不出原句的就�
     const looksLikeName = (w: string) => /^[\u4e00-\u9fa5]+$/.test(w) && !STOP.test(w);
 
     // 在摘录里找一个"与人物表某个名字高度相似、但不是它"的词：它就是异写
+    // 【坑·已修】滑窗会切出 `陈建国眉头一皱` 里的「建国眉」—— 它只是正确人名的后半截 + 后边一个字，
+    // 相似度同样 0.5，于是被当成异写、`建国眉 → 陈建国` 全书替换，正文变成 `陈陈建国头一皱`
+    // （"眉"被吃掉）。凡落在正确写法内部的窗口一律不算异写。
     let bad = '';
     for (const nm of names) {
       const L = nm.length;
       for (let i = 0; i + L <= quote.length; i++) {
         const win = quote.slice(i, i + L);
-        if (win !== nm && looksLikeName(win) && diceSimilar(win, nm) >= 0.5) { bad = win; break; }
+        if (win === nm || insideCorrectName(quote, i, nm)) continue;
+        if (looksLikeName(win) && diceSimilar(win, nm) >= 0.5) { bad = win; break; }
       }
       if (bad) break;
     }
@@ -2480,6 +2509,7 @@ quote 必须能在正文里逐字找到；只能概括、找不出原句的就�
     for (let i = 0; i + L <= ch.content.length; i++) {
       const win = ch.content.slice(i, i + L);
       if (win === bad || !looksLikeName(win)) continue;
+      if (names.some((nm: string) => insideCorrectName(ch.content, i, nm))) continue; // 同上：正确人名的一部分不能当"正字"
       if (diceSimilar(win, bad) < 0.5) continue;
       counts.set(win, (counts.get(win) || 0) + 1);
     }
@@ -2629,6 +2659,26 @@ ${ch.content.slice(Math.max(0, hit.start - 150), Math.min(ch.content.length, hit
     out = out.replace(/^[《【「"'“”]+/, '').replace(/[》】」"'“”]+$/, '').trim();
 
     /**
+     * 去掉"与上下文重叠的一截"。
+     *
+     * AI 有时会把 quote **之外**的前半句也一起返回：实测只让它改「塞进裤兜，塞进裤兜。」，
+     * 它返回了整句「林墨把上章收到的校门口威胁短信截图塞进裤兜。」→ 直接拼上去就变成
+     * 「…威胁短信截图林墨把…威胁短信截图塞进裤兜。」，凭空多出一整截（作者看到的就是"越修越乱"）。
+     * 解法：返回内容的头若与左侧已有文字重合，就去掉重合部分；尾部同理。
+     */
+    const leftCtx = ch.content.slice(0, hit.start);
+    const rightCtx = ch.content.slice(hit.end);
+    for (let k = Math.min(out.length, 80); k >= 4; k--) {
+      if (leftCtx.endsWith(out.slice(0, k))) { out = out.slice(k).trim(); break; }
+    }
+    for (let k = Math.min(out.length, 80); k >= 4; k--) {
+      if (out.length > k && rightCtx.startsWith(out.slice(out.length - k))) {
+        out = out.slice(0, out.length - k).trim();
+        break;
+      }
+    }
+
+    /**
      * 验收门槛：宁可不改，也不能把正文改坏。
      *
      * 【坑·已修】"删除型"改法（如"保留 1 次该伏笔即可，删除其余重复内容"）以前必然失败 ——
@@ -2747,11 +2797,14 @@ ${ch.content.slice(Math.max(0, hit.start - 150), Math.min(ch.content.length, hit
     for (const c of chapters) {
       const body = String(c.content || '');
       if (!body.includes(bad)) continue;
-      total += body.split(bad).length - 1;
-      await this.prisma.chapter.update({
-        where: { id: c.id },
-        data: { content: body.split(bad).join(String(to || '')) } as any,
-      });
+      // 接缝去叠字（详见 replaceWithSeamDedup 注释）：不做这一步，
+      // "陈陈建国" 与 "陈建国国" 会来回震荡，残留扫描永远报"还有一个旧写法"
+      // 第 4 个参数 = 正确写法：落在它内部的命中（「建国眉」之于「陈建国眉头一皱」）原样放过，不许改
+      const r = replaceWithSeamDedup(body, bad, String(to || ''), String(to || ''));
+      total += r.count;
+      if (r.text !== body) {
+        await this.prisma.chapter.update({ where: { id: c.id }, data: { content: r.text } as any });
+      }
     }
     if (total > 0) {
       const map = await this.renamedMap(id);

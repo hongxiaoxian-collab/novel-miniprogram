@@ -177,6 +177,74 @@ export function stripPromptLeak(text: string): string {
 }
 
 /**
+ * 这次命中是不是「其实落在正确写法内部」。
+ *
+ * 中文没有词边界：用子串/滑窗扫「建国眉」时，它可能只是 `陈建国眉头一皱` 里**正确人名的后半截
+ * 再带上后边一个字**，压根不是什么错写法。按「建国眉 → 陈建国」去改，正文会变成 `陈陈建国头一皱`
+ * ——「眉」被吃掉，越改越坏（2026-10-08 实测：清单里挂着这么一条"旧写法残留"，点一次坏一次）。
+ *
+ * 判据（必须"正确写法先于它开始、且与它重叠"）：
+ *  - `陈建国眉头一皱` 命中 `建国眉`（at=1）：`陈建国` 起于 0，0 < 1 且 0+3 > 1 → 算误命中，跳过。
+ *  - `陈陈建国` 命中 `陈陈建`（at=0）：`陈建国` 起于 1，**晚于**命中点 → 是真错写，照改。
+ * 之所以要"先于"这个方向：叠字错写本来就是正确名字前面/后面多长出来的，反过来判会把真问题一起放过。
+ */
+export function insideCorrectName(text: string, at: number, correct: string): boolean {
+  const t = String(text || '');
+  const L = String(correct || '').length;
+  if (!L || at <= 0) return false;
+  for (let j = Math.max(0, at - L + 1); j < at; j++) {
+    if (t.startsWith(correct, j)) return true; // j + L > at 在这个区间内恒成立
+  }
+  return false;
+}
+
+/** 数一个"错写法"在正文里**真正算数**的残留处数（排除落在正确写法内部的误命中） */
+export function countResidual(text: string, from: string, to: string): number {
+  const t = String(text || '');
+  const bad = String(from || '');
+  if (!bad) return 0;
+  let n = 0;
+  for (let i = t.indexOf(bad); i >= 0; i = t.indexOf(bad, i + 1)) {
+    if (!insideCorrectName(t, i, to)) n += 1;
+  }
+  return n;
+}
+
+/**
+ * 全书统一改名：替换 from → to，并在**接缝两侧去掉叠字**。
+ *
+ * 为什么必须去叠字：稿子里存在 `陈陈建国头一皱` 这种叠字错写（陈 + 陈建国）。
+ * 直接把 `陈陈建` 换成 `陈建国` 会得到 `陈建国国头一皱`；下一轮「残留扫描」又命中 `建国国`，
+ * 换回去又变 `陈陈建国头一皱` —— **两个写法来回震荡，永远收敛不了**。
+ * 去叠字后一次到位：`陈陈建国头一皱` → `陈建国头一皱`。
+ */
+export function replaceWithSeamDedup(text: string, from: string, to: string, correct?: string): { text: string; count: number } {
+  const t = String(text || '');
+  const bad = String(from || '');
+  const good = String(to || '');
+  if (!bad) return { text: t, count: 0 };
+  let out = '';
+  let i = 0;
+  let count = 0;
+  while (i <= t.length) {
+    const at = t.indexOf(bad, i);
+    if (at < 0) { out += t.slice(i); break; }
+    // 命中落在正确写法内部（详见 insideCorrectName）：不是错写法，原样放过，只前进一个字继续找
+    if (correct && insideCorrectName(t, at, correct)) { out += t.slice(i, at + 1); i = at + 1; continue; }
+    count++;
+    out += t.slice(i, at);
+    let piece = good;
+    if (out && piece && out[out.length - 1] === piece[0]) piece = piece.slice(1); // 左接缝叠字
+    let skip = 0;
+    const after = t.slice(at + bad.length);
+    if (piece && after && piece[piece.length - 1] === after[0]) skip = 1; // 右接缝叠字
+    out += piece;
+    i = at + bad.length + skip;
+  }
+  return { text: out, count };
+}
+
+/**
  * 找两个字符串「中间那段不一样的部分」（最长公共前后缀之外）。
  * 用途：定点修复后拿 改前/改后 比一比，就能知道"到底把哪个词换成了哪个词"——
  * 由此识别人名替换（任李建 → 班主任），进而把同一个错写法在全书里一次改干净。

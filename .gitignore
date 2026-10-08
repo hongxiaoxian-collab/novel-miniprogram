@@ -40,6 +40,7 @@ backend/scripts/tmp/
 
 # 本地排查/数据留底目录（章节导出等，不进代码仓）
 .tmpdb/
+backend/.tmp-patch/
 
 # 系统垃圾
 .DS_Store
