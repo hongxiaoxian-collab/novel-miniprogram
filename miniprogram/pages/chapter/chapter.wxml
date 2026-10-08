@@ -1,5 +1,7 @@
 <wxs src="../../utils/chtitle.wxs" module="t" />
 
+<ai-note text="本页章节正文由人工智能（AI）生成，仅供参考，作者可自行编辑修改；发布前请自行核校内容。" />
+
 <!-- 统一进度条：体检 / 定版 / 续写 / 撞车修复 都走这一根 -->
 <view wx:if="{{prog && prog.show}}" class="pcard">
   <view class="pcard-h">
@@ -28,6 +30,7 @@
     <view class="row"><text>章名</text><view class="copy {{platform==='qimao'?'blue':''}}" bindtap="copyName">复制章名</view></view>
     <input value="{{t.chNo(cur.title)}}" disabled="{{!editing}}" placeholder="章名（不用带「第几章」）" style="font-weight:600;margin-top:8rpx" />
 
+    <ai-note compact="{{true}}" text="以下章节正文由人工智能（AI）生成" />
     <view class="row" style="margin-top:16rpx"><text>正文</text><view class="copy {{platform==='qimao'?'blue':''}}" bindtap="copyContent">复制正文</view></view>
     <textarea value="{{cur.content}}" bindinput="onContent" disabled="{{!editing}}" auto-height maxlength="-1"
       style="margin-top:8rpx;font-size:28rpx;line-height:1.8;min-height:400rpx" placeholder="暂无正文" />

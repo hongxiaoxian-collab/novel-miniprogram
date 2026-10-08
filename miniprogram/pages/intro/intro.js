@@ -404,6 +404,27 @@ Page({
       this.paintScenery(ctx, fig, pal);
     }
     [this.paintClassic, this.paintBand, this.paintSide][style].call(this, ctx, t, pal, fig);
+    this.drawAiMark(ctx); // 合规：封面属 AI 生成内容，必须带显式标识（保存/上传后仍可见）
+    ctx.restore();
+  },
+  /**
+   * 封面右下角"AI 生成"标识。
+   * 三种构图共用一个出口，避免漏画；深底白字保证在任意配色上都清晰。
+   */
+  drawAiMark(ctx) {
+    const text = 'AI 生成';
+    ctx.save();
+    ctx.font = '22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(text).width + 26;
+    const h = 38;
+    const x = VW - 18 - w;
+    const y = VH - 18 - h;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
     ctx.restore();
   },
   /** 方案配色的背景渐变（对角线，避免过于平板） */

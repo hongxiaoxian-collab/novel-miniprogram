@@ -1,3 +1,5 @@
+<ai-note text="本小程序的书名、大纲、简介、封面与章节正文均由人工智能（AI）生成，仅供参考，发布前请自行核校。" />
+
 <view class="card">
   <view class="card-h">首次引导 · {{platformName}}</view>
   <view class="muted" style="line-height:1.8">

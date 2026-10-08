@@ -1,4 +1,7 @@
 {
   "navigationBarTitleText": "作品资料",
-  "navigationBarBackgroundColor": "#07c160"
+  "navigationBarBackgroundColor": "#07c160",
+  "usingComponents": {
+    "ai-note": "/components/ai-note/ai-note"
+  }
 }

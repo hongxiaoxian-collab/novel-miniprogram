@@ -1,3 +1,5 @@
+<ai-note text="本页对话与生成的小说内容均由人工智能（AI）生成，仅供参考，请勿直接作为事实使用。" />
+
 <view class="card">
   <view class="row"><view class="card-h">🤖 扣子写稿 Bot</view><view class="evo">自进化</view></view>
   <view class="tagrow" style="margin-top:12rpx">

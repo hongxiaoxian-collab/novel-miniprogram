@@ -2,6 +2,7 @@
   "navigationBarTitleText": "我的作品",
   "navigationBarBackgroundColor": "#07c160",
   "usingComponents": {
-    "platform-switch": "/components/platform-switch/platform-switch"
+    "platform-switch": "/components/platform-switch/platform-switch",
+    "ai-note": "/components/ai-note/ai-note"
   }
 }

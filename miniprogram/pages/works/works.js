@@ -3,11 +3,29 @@ const { request } = require('../../utils/request');
 const { copy } = require('../../utils/clipboard');
 const { getPen, setPen } = require('../../utils/pen');
 
+/** 首次进入的 AI 生成内容声明（只弹一次，版本号变更时会重新弹） */
+const AI_NOTICE_KEY = 'aiNoticeV1';
+const AI_NOTICE_TEXT =
+  '本小程序提供人工智能（AI）辅助创作服务：作品名、大纲、作品简介、封面、人物设定与章节正文均由 AI 生成，仅供参考。\n\n' +
+  '发布前请自行核校内容，勿用于违法违规或侵犯他人权益的用途。';
+
 Page({
   data: { platform: 'fanqie', novels: [], pen: '' },
   onShow() {
     this.setData({ platform: app.globalData.platform, pen: getPen() });
     this.loadNovels();
+    this.aiNotice();
+  },
+  /** 首次进入的 AI 生成声明：让用户明确知悉「内容由 AI 生成」 */
+  aiNotice() {
+    if (wx.getStorageSync(AI_NOTICE_KEY)) return;
+    try { wx.setStorageSync(AI_NOTICE_KEY, 1); } catch (e) { /* 写不上就下次再弹 */ }
+    wx.showModal({
+      title: 'AI 生成内容说明',
+      content: AI_NOTICE_TEXT,
+      showCancel: false,
+      confirmText: '我知道了',
+    });
   },
   async loadNovels() {
     try {
