@@ -1,7 +1,7 @@
 const app = getApp();
 const { request } = require('../../utils/request');
 const { copy } = require('../../utils/clipboard');
-const { runFinalize, runningText, runJob, jobText, progOf } = require('../../utils/task');
+const { runFinalize, runningText, runJob, waitJob, jobText, progOf } = require('../../utils/task');
 
 /**
  * 体检的三种口径：作者可以只查矛盾、只查撞车、或者两个一起查。
@@ -16,6 +16,23 @@ const AUDIT_SCOPES = [
 
 /** 续更可选章数：作者不用一章一章点，选 5 章就一次写完（后台任务，退出小程序也照写） */
 const NEXT_COUNTS = [1, 3, 5, 10];
+
+/**
+ * 过审体检报告整形（纯展示层，不动判据本身）。
+ * 两处必须处理：
+ *   ① chapters[].bad 是数组 —— 直接塞进 wxml 会渲染成 "a,b,c"，改成中文顿号。
+ *   ② metrics[].weight 是 0.18 这种小数 —— 作者看不懂，转成"18%"。
+ */
+function shapePass(r) {
+  const out = Object.assign({}, r);
+  out.metrics = (r.metrics || []).map((m) => Object.assign({}, m, {
+    weightText: Math.round((Number(m.weight) || 0) * 100) + '%',
+  }));
+  out.chapters = (r.chapters || []).map((c) => Object.assign({}, c, {
+    badText: (c.bad || []).join('、'),
+  }));
+  return out;
+}
 
 /** 章名去掉「第N章」前缀：章号是独立字段，带上就会显示成「第1章 第1章 刚重生…」 */
 const stripNo = (s) => String(s || '')
@@ -48,6 +65,11 @@ Page({
     openAudit: null,      // 服务端存的最近一次体检结果
     auditScope: 'all',    // 本次体检查什么：all / consistency / dup（下次「重新体检」沿用）
     prog: null,           // 统一进度条：体检 / 续写 / 定版 / 撞车修复 共用
+    passChecking: false,  // 平台过审体检中（纯代码算，很快）
+    passResult: null,     // 过审体检报告 {score, level, metrics[], chapters[], summary, platformNote}
+    showPass: false,      // 过审体检结果全屏层
+    passCleaning: false,  // 一键过审清洗中（后台任务，要烧 AI）
+    passText: '',         // 清洗进度文案
   },
   onLoad(q) {
     this.enterId = (q && q.id) || ''; // 跳转带过来的作品 id，优先于全局缓存
@@ -340,6 +362,87 @@ Page({
       wx.showToast({ title: '换名失败，再点一次', icon: 'none' });
     }
   },
+  /**
+   * 【平台过审体检】和「一致性体检」是两码事，别混：
+   *   一致性体检 = 故事对不对（人名前后不一、时间线穿帮）
+   *   过审体检   = 能不能签约（机器判据过不过）
+   * 实战教训：某稿安全审核秒过，签约评估却被拒（"作品质量暂未达到签约标准"）——
+   * 番茄签约评估是**机器审**，抓的是文本结构指纹，不是故事好坏。没矛盾 ≠ 能过审。
+   *
+   * 八项判据全由后端代码算（同一稿跑多少次结果一样），不烧 AI、秒级返回。
+   */
+  async passReview() {
+    const id = this.data.novelId;
+    if (!id || this.data.passChecking) return;
+    this.setData({ passChecking: true, passResult: null, showPass: false });
+    wx.showLoading({ title: '过审体检中…', mask: true });
+    try {
+      const r = await request(`/novel/${id}/pass-review`);
+      wx.hideLoading();
+      if (!r || typeof r.score !== 'number') throw new Error('没有返回体检结果');
+      this.setData({ passChecking: false, passResult: shapePass(r), showPass: true });
+      const bad = (r.metrics || []).filter((m) => !m.pass).length;
+      wx.showToast({
+        title: bad ? `${r.score} 分 · ${bad} 项不达标` : `${r.score} 分 · 全部达标`,
+        icon: 'none', duration: 2500,
+      });
+    } catch (e) {
+      wx.hideLoading();
+      this.setData({ passChecking: false });
+      wx.showToast({ title: (e && e.message) || '过审体检失败，再点一次', icon: 'none', duration: 2500 });
+    }
+  },
+  closePass() { this.setData({ showPass: false }); },
+
+  /**
+   * 【一键过审清洗】按平台判据逐章改写，跑「清洗 → 复检」最多三轮。
+   * 走后台任务：一章一章改要烧 AI，退出小程序也照跑、回来能看到进度。
+   *
+   * 为什么让作者选目标分而不是写死 85：清洗要烧额度，作者可能只想先到"接近合格"，
+   * 也可能想冲"可提交"。给个选择，别替他决定。
+   */
+  pickPassClean() {
+    if (this.data.passCleaning) return;
+    const that = this;
+    wx.showActionSheet({
+      itemList: ['冲到 90 分（可提交，改得最狠）', '冲到 85 分（接近合格，推荐）', '冲到 75 分（先把最差的几章拉起来）'],
+      success(r) {
+        const map = [90, 85, 75];
+        const target = map[r.tapIndex];
+        if (target) that.passClean(target);
+      },
+      fail() {},
+    });
+  },
+  async passClean(target) {
+    const id = this.data.novelId;
+    if (!id || this.data.passCleaning) return;
+    const goal = Number(target) || 85;
+    const title = `过审清洗（目标 ${goal} 分）`;
+    this.setData({ passCleaning: true, passText: '启动清洗…', showPass: false });
+    this.startProg(title);
+    try {
+      // 直接打专用接口（runJob 的 jobs 队列不认 target 参数，传过去就丢了），启动后只轮询。
+      // 后端 startPassCleanJob 内部也是 startJob，所以进度同样落在 /novel/:id/jobs 上。
+      await request(`/novel/${id}/pass-clean`, 'POST', { target: goal });
+      await waitJob(id, (jb) => {
+        this.setData({ passText: jobText(jb) });
+        this.onProg(title, jb);
+      }, 20 * 60 * 1000);
+      this.endProg();
+      this.setData({ passCleaning: false, passText: '' });
+      // 清洗改了正文 → 章节要重新拉，过审分也要重新算（不能拿旧分数糊弄作者）
+      await this.loadChapters();
+      const r = await request(`/novel/${id}/pass-review`);
+      this.setData({ passResult: r, showPass: true });
+      wx.showToast({ title: `清洗完成：${r.score} 分（${r.level}）`, icon: 'none', duration: 3000 });
+    } catch (e) {
+      this.endProg();
+      this.setData({ passCleaning: false, passText: '' });
+      wx.showToast({ title: (e && e.message) || '清洗失败，可再点一次', icon: 'none', duration: 2500 });
+    }
+  },
+
   /**
    * 进入页面时把"上次体检还没修的问题数"拉回来（退出小程序也不丢）。
    * 【坑·已修】稿子改过（指纹变了）之后旧结果已作废 —— 以前照样把 125 处挂成角标，

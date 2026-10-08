@@ -49,6 +49,15 @@
   </view>
   <view wx:if="{{auditing && auditText}}" class="muted" style="text-align:center;margin:8rpx 0">{{auditText}}</view>
 
+  <!-- 平台过审体检：查的是"能不能签约"（机器判据），和上面"故事有没有矛盾"是两码事 -->
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="passReview">
+    {{passChecking ? '⏳ 过审体检中…' : '🎯 平台过审体检（过番茄/七猫机器审）'}}
+  </view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="pickPassClean">
+    {{passCleaning ? '⏳ ' + passText : '🧹 一键过审清洗（按判据改到达标）'}}
+  </view>
+  <view wx:if="{{passCleaning && passText}}" class="muted" style="text-align:center;margin:8rpx 0">{{passText}}</view>
+
   <!-- 上次体检遗留的问题：退出小程序再进来也还在，点开直接看清单 -->
   <view wx:if="{{openBadge && !showAudit}}" class="btn ghost" style="color:#e6a23c;border-color:#e6a23c" bindtap="openAudit">
     ⚠️ 上次体检还有 {{openBadge}} 处矛盾没修，点这里查看清单
@@ -225,6 +234,66 @@
     </scroll-view>
 
     <!-- 底部原来那行「重新体检 / 先不改，返回」已去掉：两个功能都在顶部操作条（重新体检 / 关闭） -->
+  </view>
+</view>
+
+<!-- ==================== 平台过审体检（全屏层）====================
+     和「一致性体检」刻意分成两张表：
+       一致性体检 = 故事对不对（人名/时间线矛盾）—— 修完叫"没毛病"
+       过审体检   = 能不能签约（机器按文本结构指纹判）—— 修完叫"能过审"
+     安全审核过了不代表能签约，所以这张表必须单独存在。 -->
+<view wx:if="{{showPass}}" class="mask" bindtap="closePass">
+  <view class="sheet audit-sheet" catchtap="noop">
+    <view class="row audit-top">
+      <view class="card-h audit-top-h">🎯 过审体检 · {{passResult.score}} 分</view>
+      <view class="audit-top-btns">
+        <view class="copy" bindtap="passReview">{{passChecking ? '⏳ 体检中…' : '🔄 重新体检'}}</view>
+        <view class="copy" bindtap="pickPassClean">{{passCleaning ? '⏳ 清洗中…' : '🧹 一键清洗'}}</view>
+        <view class="copy" bindtap="closePass">关闭</view>
+      </view>
+    </view>
+
+    <view class="muted" style="margin:8rpx 0">
+      判定：<text style="color:{{passResult.score>=88?'#07a352':(passResult.score>=75?'#e6a23c':'#e64340')}};font-weight:600">{{passResult.level}}</text>
+    </view>
+    <view class="muted" style="margin:4rpx 0 8rpx">{{passResult.summary}}</view>
+    <view class="muted" style="margin:4rpx 0 8rpx;color:#999">{{passResult.platformNote}}</view>
+
+    <scroll-view scroll-y enhanced show-scrollbar="{{true}}" bounces class="audit-body">
+      <!-- ① 八项判据：不达标的排在最前，作者一眼知道先修哪个 -->
+      <view class="blk-h">① 平台机器审判据（{{passResult.metrics.length}} 项）</view>
+      <view wx:for="{{passResult.metrics}}" wx:key="key" class="issue">
+        <view class="issue-h">
+          <text class="issue-lv {{item.pass?'lv-low':'lv-high'}}">{{item.pass ? '达标' : '不达标'}}</text>
+          <text>{{item.name}}</text>
+          <text class="muted">· 权重 {{item.weightText}}</text>
+        </view>
+        <view class="issue-q">
+          实测 {{item.valueText}} <text class="muted">（健康区间 {{item.healthy}}）</text>
+        </view>
+        <view wx:if="{{item.violation}}" class="muted" style="color:#e64340">命中：{{item.violation}}</view>
+        <view wx:if="{{item.why}}" class="muted">为什么：{{item.why}}</view>
+        <view wx:if="{{item.how}}" class="issue-fix">怎么改：{{item.how}}</view>
+      </view>
+
+      <!-- ② 逐章明细：整体分数好看不代表每章都行 —— 实战里整体 100 分却定位到第 5 章 87 分 -->
+      <view class="blk-h">② 逐章明细（{{passResult.chapters.length}} 章）</view>
+      <view wx:for="{{passResult.chapters}}" wx:key="order" class="issue">
+        <view class="issue-h">
+          <text class="issue-lv {{item.score>=88?'lv-low':(item.score>=75?'lv-mid':'lv-high')}}">{{item.score}} 分</text>
+          <text>第 {{item.order}} 章</text>
+          <text class="muted">· {{item.words}} 字</text>
+        </view>
+        <view class="issue-q">{{item.title || '（无章名）'}}</view>
+        <view wx:if="{{item.badText}}" class="muted" style="color:#e6a23c">不达标：{{item.badText}}</view>
+        <view wx:else class="muted" style="color:#07a352">✓ 各项判据达标</view>
+      </view>
+
+      <view class="muted" style="margin:16rpx 0;color:#999">
+        说明：八项判据全部由代码计算（同一稿跑多少次结果一致），不依赖 AI 判断。
+        健康区间取自平台公开规则与作者实战统计，会随平台规则演进而调整。
+      </view>
+    </scroll-view>
   </view>
 </view>
 
