@@ -6,47 +6,40 @@
  * 直连 HTTP 会被拒（AI_CHANNEL_NOT_ALLOWED）。因此把模型调用放进云函数，
  * 由 ECS 上的 NestJS 通过 HTTP 触发它 —— 既合规又能吃到免费额度。
  *
- * 部署：云开发控制台 → 云函数 → 新建 → 通过代码包创建 → 上传本目录 zip
- *      → 函数配置：超时 300 秒、内存 512MB、环境变量 AI_WRITE_TOKEN
- *      → HTTP 访问服务：路径 /ai-write 绑定本函数
+ * 一份代码两种形态都能跑：
+ *   · HTTP 云函数（Web 函数）：scf_bootstrap 执行 `node index.js` → 起 HTTP 服务监听 9000
+ *   · 普通云函数（事件函数）：平台注入调用 → 走 exports.main(event)
  *
- * 入参：POST JSON {token, model?, prompt}
- * 出参：{ text }（失败时 { error }）
+ * 若手动验证：POST {token, prompt} → 200 {text}；口令不对 → 401 {error:"bad token"}
+ * 部署：函数配置里加环境变量 AI_WRITE_TOKEN；超时 300 秒、内存 512MB。
  */
+const http = require('http');
 const tcb = require('@cloudbase/node-sdk');
 
+const PORT = process.env.PORT || 9000;
 const MODEL = process.env.AI_MODEL || 'hy3';
 const TOKEN = process.env.AI_WRITE_TOKEN || '';
-/** 模型渠道名，按顺序试；不同版本控制台口径不一，留回退避免一次失败就卡死 */
+const ENV_ID = process.env.TCB_ENV || process.env.CLOUDBASE_ENV_ID || 'zhicheng-novel-d9g7rdxjo798da6d0';
+/** 模型渠道名，逐个试；不同版本控制台口径不一，留回退避免一次失败就卡死 */
 const PROVIDERS = (process.env.AI_PROVIDER || 'cloudbase,hunyuan-exp')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
 
 let app;
-const getApp = () => (app ||= tcb.init({ timeout: 300000 }));
-
-const tryJson = (s) => {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return null;
-  }
-};
-
-/** 兼容云函数 HTTP 访问服务 / 函数 URL 化的几种 event 形态 */
-const parseBody = (event) => {
-  if (!event) return null;
-  if (typeof event === 'string') return tryJson(event);
-  if (event.body) return typeof event.body === 'string' ? tryJson(event.body) : event.body;
-  return event;
-};
-
-const resp = (statusCode, payload) => ({
-  statusCode,
-  headers: { 'Content-Type': 'application/json; charset=utf-8' },
-  body: JSON.stringify(payload),
-});
+const getApp = () =>
+  (app ||= tcb.init({
+    env: ENV_ID,
+    // HTTP 云函数没有事件函数的免密上下文，需显式带平台注入的临时凭证（有则带上）
+    ...(process.env.TENCENTCLOUD_SECRETID
+      ? {
+          secretId: process.env.TENCENTCLOUD_SECRETID,
+          secretKey: process.env.TENCENTCLOUD_SECRETKEY,
+          sessionToken: process.env.TENCENTCLOUD_SESSIONTOKEN,
+        }
+      : {}),
+    timeout: 300000,
+  }));
 
 /** 逐渠道尝试，第一个出内容就返回 */
 const writeText = async (prompt, modelName) => {
@@ -71,15 +64,68 @@ const writeText = async (prompt, modelName) => {
   throw lastErr;
 };
 
-exports.main = async (event) => {
-  const body = parseBody(event);
-  if (!body) return resp(400, { error: 'missing body' });
-  if (TOKEN && body.token !== TOKEN) return resp(401, { error: 'bad token' });
-  if (!body.prompt) return resp(400, { error: 'missing prompt' });
-
+/** 统一处理：拿 prompt 出正文 */
+const handle = async (payload) => {
+  if (!payload) return { code: 400, data: { error: 'missing body' } };
+  if (TOKEN && payload.token !== TOKEN) return { code: 401, data: { error: 'bad token' } };
+  if (!payload.prompt) return { code: 400, data: { error: 'missing prompt' } };
   try {
-    return resp(200, { text: await writeText(body.prompt, body.model || MODEL) });
+    return { code: 200, data: { text: await writeText(payload.prompt, payload.model || MODEL) } };
   } catch (e) {
-    return resp(500, { error: e?.message || String(e) });
+    return { code: 500, data: { error: e?.message || String(e) } };
   }
 };
+
+/* ---------------- 形态一：事件函数入口 ---------------- */
+exports.main = async (event) => {
+  const payload =
+    !event ? null
+    : typeof event === 'string' ? JSON.parse(event)
+    : event.body ? (typeof event.body === 'string' ? JSON.parse(event.body) : event.body)
+    : event;
+  const { code, data } = await handle(payload);
+  return {
+    statusCode: code,
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify(data),
+  };
+};
+
+/* ---------------- 形态二：HTTP 云函数（Web）入口 ---------------- */
+const readJson = (req) =>
+  new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch (e) {
+        reject(new Error('invalid json'));
+      }
+    });
+    req.on('error', reject);
+  });
+
+const send = (res, code, data) => {
+  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(data));
+};
+
+const server = http.createServer(async (req, res) => {
+  if (req.method === 'GET') return send(res, 200, { ok: true, hint: 'POST {token, prompt}' });
+  if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
+  let payload;
+  try {
+    payload = await readJson(req);
+  } catch (e) {
+    return send(res, 400, { error: e.message });
+  }
+  const { code, data } = await handle(payload);
+  send(res, code, data);
+});
+
+// 只有被直接 `node index.js` 启动时（scf_bootstrap）才监听端口；
+// 作为事件函数被平台 require 时 require.main !== module，不会误启服务。
+if (require.main === module) {
+  server.listen(PORT, '0.0.0.0', () => console.log(`ai-write listening on 0.0.0.0:${PORT}`));
+}
