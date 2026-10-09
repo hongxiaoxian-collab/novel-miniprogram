@@ -25,9 +25,11 @@ const NEXT_COUNTS = [1, 3, 5, 10];
  */
 function shapePass(r) {
   const out = Object.assign({}, r);
-  out.metrics = (r.metrics || []).map((m) => Object.assign({}, m, {
+  const shape = (m) => Object.assign({}, m, {
     weightText: Math.round((Number(m.weight) || 0) * 100) + '%',
-  }));
+  });
+  out.metrics = (r.metrics || []).map(shape);
+  out.rankMetrics = (r.rankMetrics || []).map(shape);
   out.chapters = (r.chapters || []).map((c) => Object.assign({}, c, {
     badText: (c.bad || []).join('、'),
   }));
@@ -382,9 +384,11 @@ Page({
       if (!r || typeof r.score !== 'number') throw new Error('没有返回体检结果');
       this.setData({ passChecking: false, passResult: shapePass(r), showPass: true });
       const bad = (r.metrics || []).filter((m) => !m.pass).length;
+      const rbad = (r.rankMetrics || []).filter((m) => !m.pass).length;
       wx.showToast({
-        title: bad ? `${r.score} 分 · ${bad} 项不达标` : `${r.score} 分 · 全部达标`,
-        icon: 'none', duration: 2500,
+        title: `过审 ${r.passScore} · 冲榜 ${r.rankScore}`
+          + (bad + rbad ? `（${bad + rbad} 项不达标）` : '（全部达标）'),
+        icon: 'none', duration: 3000,
       });
     } catch (e) {
       wx.hideLoading();
@@ -418,7 +422,7 @@ Page({
     const id = this.data.novelId;
     if (!id || this.data.passCleaning) return;
     const goal = Number(target) || 85;
-    const title = `过审清洗（目标 ${goal} 分）`;
+    const title = `清洗到 ${goal} 分（过审 + 冲榜）`;
     this.setData({ passCleaning: true, passText: '启动清洗…', showPass: false });
     this.startProg(title);
     try {

@@ -144,7 +144,22 @@ module.exports.has = function (arr, v) {
     <input class="title-edit" value="{{titleEdit}}" bindinput="onTitle" maxlength="30" placeholder="作品名" />
     <view class="copy {{platform==='qimao'?'blue':''}}" bindtap="saveTitle">保存</view>
     <view class="copy {{platform==='qimao'?'blue':''}}" style="margin-left:10rpx" bindtap="copy" data-text="{{titleEdit}}">复制</view>
+    <view class="copy {{platform==='qimao'?'blue':''}}" style="margin-left:10rpx" bindtap="checkMyTitle">📊 评分</view>
   </view>
+
+  <!-- 书名判据：过审 + 冲榜。书名是吸量第一关，定下来再改等于换一本书 -->
+  <block wx:if="{{myTitleCheck && myTitleCheck.titleReview}}">
+    <view style="background:#f6f7f9;border-radius:12rpx;padding:14rpx 18rpx;margin:10rpx 0">
+      <view>
+        书名判据：<text style="color:{{myTitleCheck.titleReview.pass?'#07a352':'#e64340'}};font-weight:700;font-size:32rpx">{{myTitleCheck.titleReview.score}} 分</text>
+        <text class="muted">（{{myTitleCheck.titleReview.pass ? '能过审' : '有硬伤，必须先改'}}）</text>
+      </view>
+      <view class="muted" style="margin-top:4rpx">{{myTitleCheck.titleReview.verdict}}</view>
+      <view wx:if="{{myTitleCheck.titleReview.issuesText}}" class="muted" style="color:#e64340;margin-top:4rpx">硬伤：{{myTitleCheck.titleReview.issuesText}}</view>
+      <view wx:if="{{myTitleCheck.titleReview.tipsText}}" class="muted" style="color:#e6a23c;margin-top:4rpx">提升吸量：{{myTitleCheck.titleReview.tipsText}}</view>
+      <view wx:if="{{myTitleCheck.titleReview.hitsText}}" class="muted" style="color:#07a352;margin-top:4rpx">已具备：{{myTitleCheck.titleReview.hitsText}}</view>
+    </view>
+  </block>
 
   <!-- 还没大纲（从作品列表点进来的半成品）→ 补生成入口 -->
   <block wx:if="{{!outline.outline}}">
@@ -185,9 +200,13 @@ module.exports.has = function (arr, v) {
             <text wx:if="{{index===0}}" class="pick-badge">推荐</text>
             <text class="pick-name">{{item.title}}</text>
             <text wx:if="{{item.risk==='low'}}" class="dup-ok">已预检·不撞车</text>
+            <text wx:if="{{item.titleScore!==null}}" class="dup-ok">吸量 {{item.titleScore}} 分</text>
           </view>
           <view class="pick-go" data-t="{{item.title}}" data-p="{{item.plot}}" bindtap="applyDupTitle">用这个</view>
         </view>
+        <view wx:if="{{item.titleIssues}}" class="muted" style="margin:6rpx 0 0 8rpx;color:#e64340">书名硬伤：{{item.titleIssues}}</view>
+        <view wx:elif="{{item.titleVerdict}}" class="muted" style="margin:6rpx 0 0 8rpx">书名：{{item.titleVerdict}}</view>
+        <view wx:if="{{item.titleTips}}" class="muted" style="margin:0 0 4rpx 8rpx;color:#e6a23c">建议：{{item.titleTips}}</view>
         <view wx:if="{{item.note}}" class="muted" style="margin:6rpx 0 0 8rpx">预检：{{item.note}}</view>
         <view wx:if="{{item.plot}}" class="muted" style="margin:0 0 8rpx 8rpx;color:#07a352">配套剧情：{{item.plot}}</view>
       </block>
@@ -215,6 +234,15 @@ module.exports.has = function (arr, v) {
       <view class="muted" style="margin-top:8rpx">
         预检结果：{{myTitleCheck.risk==='low' ? '✓ 不撞车，可以用' : (myTitleCheck.risk==='high' ? '✗ 撞在榜热书' : '⚠ 有相似，能用剧情拉开')}} —— {{myTitleCheck.note}}
       </view>
+      <block wx:if="{{myTitleCheck.titleReview}}">
+        <view class="muted" style="margin-top:4rpx">
+          书名判据：<text style="color:{{myTitleCheck.titleReview.pass?'#07a352':'#e64340'}};font-weight:600">{{myTitleCheck.titleReview.score}} 分</text>
+          {{myTitleCheck.titleReview.pass ? '（能过审）' : '（有硬伤，必须先改）'}} —— {{myTitleCheck.titleReview.verdict}}
+        </view>
+        <view wx:if="{{myTitleCheck.titleReview.issuesText}}" class="muted" style="color:#e64340">硬伤：{{myTitleCheck.titleReview.issuesText}}</view>
+        <view wx:if="{{myTitleCheck.titleReview.tipsText}}" class="muted" style="color:#e6a23c">提升吸量：{{myTitleCheck.titleReview.tipsText}}</view>
+        <view wx:if="{{myTitleCheck.titleReview.hitsText}}" class="muted" style="color:#07a352">已具备：{{myTitleCheck.titleReview.hitsText}}</view>
+      </block>
       <view wx:if="{{myTitleCheck.plot}}" class="muted" style="color:#07a352">配套剧情：{{myTitleCheck.plot}}</view>
       <view class="pick" style="margin-top:10rpx">
         <view class="pick-main"><text class="pick-name">{{myTitleCheck.title}}</text></view>

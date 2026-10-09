@@ -54,7 +54,7 @@
     {{passChecking ? '⏳ 过审体检中…' : '🎯 平台过审体检（过番茄/七猫机器审）'}}
   </view>
   <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="pickPassClean">
-    {{passCleaning ? '⏳ ' + passText : '🧹 一键过审清洗（按判据改到达标）'}}
+    {{passCleaning ? '⏳ ' + passText : '🧹 一键清洗（按过审 + 冲榜判据改到达标）'}}
   </view>
   <view wx:if="{{passCleaning && passText}}" class="muted" style="text-align:center;margin:8rpx 0">{{passText}}</view>
 
@@ -245,7 +245,7 @@
 <view wx:if="{{showPass}}" class="mask" bindtap="closePass">
   <view class="sheet audit-sheet" catchtap="noop">
     <view class="row audit-top">
-      <view class="card-h audit-top-h">🎯 过审体检 · {{passResult.score}} 分</view>
+      <view class="card-h audit-top-h">🎯 过审 + 冲榜体检 · {{passResult.score}} 分</view>
       <view class="audit-top-btns">
         <view class="copy" bindtap="passReview">{{passChecking ? '⏳ 体检中…' : '🔄 重新体检'}}</view>
         <view class="copy" bindtap="pickPassClean">{{passCleaning ? '⏳ 清洗中…' : '🧹 一键清洗'}}</view>
@@ -253,15 +253,26 @@
       </view>
     </view>
 
-    <view class="muted" style="margin:8rpx 0">
-      判定：<text style="color:{{passResult.score>=88?'#07a352':(passResult.score>=75?'#e6a23c':'#e64340')}};font-weight:600">{{passResult.level}}</text>
+    <!-- 过审与冲榜是两件事：一个管"能不能发"，一个管"能不能起" -->
+    <view style="display:flex;gap:12rpx;margin:8rpx 0">
+      <view style="flex:1;background:#f6f7f9;border-radius:12rpx;padding:12rpx 16rpx">
+        <view class="muted">过审分 · 能不能签约</view>
+        <view style="font-size:44rpx;font-weight:700;color:{{passResult.passScore>=88?'#07a352':(passResult.passScore>=75?'#e6a23c':'#e64340')}}">{{passResult.passScore}}</view>
+        <view class="muted">{{passResult.passLevel}}</view>
+      </view>
+      <view style="flex:1;background:#f6f7f9;border-radius:12rpx;padding:12rpx 16rpx">
+        <view class="muted">冲榜分 · 算法给不给量</view>
+        <view style="font-size:44rpx;font-weight:700;color:{{passResult.rankScore>=85?'#07a352':(passResult.rankScore>=70?'#e6a23c':'#e64340')}}">{{passResult.rankScore}}</view>
+        <view class="muted">{{passResult.rankLevel}}</view>
+      </view>
     </view>
+    <view class="muted" style="margin:6rpx 0 8rpx;color:#e6a23c">{{passResult.gateNote}}</view>
     <view class="muted" style="margin:4rpx 0 8rpx">{{passResult.summary}}</view>
     <view class="muted" style="margin:4rpx 0 8rpx;color:#999">{{passResult.platformNote}}</view>
 
     <scroll-view scroll-y enhanced show-scrollbar="{{true}}" bounces class="audit-body">
-      <!-- ① 八项判据：不达标的排在最前，作者一眼知道先修哪个 -->
-      <view class="blk-h">① 平台机器审判据（{{passResult.metrics.length}} 项）</view>
+      <!-- ① 过审判据：违反会被机器直接拒签 -->
+      <view class="blk-h">① 过审判据 · 能不能签约（{{passResult.metrics.length}} 项）</view>
       <view wx:for="{{passResult.metrics}}" wx:key="key" class="issue">
         <view class="issue-h">
           <text class="issue-lv {{item.pass?'lv-low':'lv-high'}}">{{item.pass ? '达标' : '不达标'}}</text>
@@ -276,8 +287,26 @@
         <view wx:if="{{item.how}}" class="issue-fix">怎么改：{{item.how}}</view>
       </view>
 
-      <!-- ② 逐章明细：整体分数好看不代表每章都行 —— 实战里整体 100 分却定位到第 5 章 87 分 -->
-      <view class="blk-h">② 逐章明细（{{passResult.chapters.length}} 章）</view>
+      <!-- ② 冲榜判据：不违规，但决定算法愿不愿意给量 -->
+      <view wx:if="{{passResult.rankMetrics.length}}">
+        <view class="blk-h">② 冲榜判据 · 算法给不给量（{{passResult.rankMetrics.length}} 项）</view>
+        <view wx:for="{{passResult.rankMetrics}}" wx:key="key" class="issue">
+          <view class="issue-h">
+            <text class="issue-lv {{item.pass?'lv-low':'lv-mid'}}">{{item.pass ? '达标' : '偏弱'}}</text>
+            <text>{{item.name}}</text>
+            <text class="muted">· 权重 {{item.weightText}}</text>
+          </view>
+          <view class="issue-q">
+            实测 {{item.valueText}} <text class="muted">（健康区间 {{item.healthy}}）</text>
+          </view>
+          <view wx:if="{{item.violation}}" class="muted" style="color:#e6a23c">影响：{{item.violation}}</view>
+          <view wx:if="{{item.why}}" class="muted">为什么：{{item.why}}</view>
+          <view wx:if="{{item.how}}" class="issue-fix">怎么改：{{item.how}}</view>
+        </view>
+      </view>
+
+      <!-- ③ 逐章明细：整体分数好看不代表每章都行 —— 实战里整体 100 分却定位到第 5 章 87 分 -->
+      <view class="blk-h">③ 逐章明细（{{passResult.chapters.length}} 章）</view>
       <view wx:for="{{passResult.chapters}}" wx:key="order" class="issue">
         <view class="issue-h">
           <text class="issue-lv {{item.score>=88?'lv-low':(item.score>=75?'lv-mid':'lv-high')}}">{{item.score}} 分</text>
@@ -290,8 +319,8 @@
       </view>
 
       <view class="muted" style="margin:16rpx 0;color:#999">
-        说明：八项判据全部由代码计算（同一稿跑多少次结果一致），不依赖 AI 判断。
-        健康区间取自平台公开规则与作者实战统计，会随平台规则演进而调整。
+        说明：过审 8 项 + 冲榜 6 项共 14 项判据，全部由代码计算（同一稿跑多少次结果一致），
+        不依赖 AI 判断。健康区间取自平台公开规则与作者实战统计，会随平台规则演进而调整。
       </view>
     </scroll-view>
   </view>

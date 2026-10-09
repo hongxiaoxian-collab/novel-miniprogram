@@ -610,7 +610,14 @@ Page({
     if (!rep) return rep;
     const checks = rep.titleChecks || [];
     rep.picks = checks.length
-      ? checks.map((c) => ({ title: c.title, risk: c.risk || '', note: c.note || '', plot: c.plot || rep.plotAdvice || '' }))
+      ? checks.map((c) => ({
+          title: c.title, risk: c.risk || '', note: c.note || '', plot: c.plot || rep.plotAdvice || '',
+          // 书名判据（过审 + 吸量）：撞车查的是"跟别人像不像"，这一层查的是"平台收不收、读者点不点"
+          titleScore: c.titleReview ? c.titleReview.score : null,
+          titleVerdict: c.titleReview ? c.titleReview.verdict : '',
+          titleIssues: c.titleReview && c.titleReview.issues ? c.titleReview.issues.join('；') : '',
+          titleTips: c.titleReview && c.titleReview.tips ? c.titleReview.tips.join('；') : '',
+        }))
       : (rep.titleSuggestions || []).map((t) => ({ title: t, risk: '', note: '', plot: rep.plotAdvice || '' }));
     return rep;
   },
@@ -622,12 +629,20 @@ Page({
   /** 预检作者自己起的书名：通过就能直接「用这个」（AI 一批都挑不出来时至少还有这条路） */
   async checkMyTitle() {
     const id = this.needId();
-    const t = (this.data.myTitle || '').trim();
+    // 两处入口共用：撞车面板里的自填框（myTitle）、步骤4 的作品名输入框（titleEdit）
+    const t = String(this.data.myTitle || this.data.titleEdit || '').trim();
     if (!id || !t) { wx.showToast({ title: '先填一个书名', icon: 'none' }); return; }
     wx.showLoading({ title: '预检中…', mask: true });
     try {
       const r = await request(`/novel/${id}/title-check`, 'POST', { title: t });
       wx.hideLoading();
+      // 数组直接进 wxml 会渲染成 a,b,c —— 展示层转成中文顿号
+      if (r && r.titleReview) {
+        const rev = r.titleReview;
+        rev.issuesText = (rev.issues || []).join('；');
+        rev.tipsText = (rev.tips || []).join('；');
+        rev.hitsText = (rev.hits || []).join('；');
+      }
       this.setData({ myTitleCheck: r });
     } catch (e) {
       wx.hideLoading();

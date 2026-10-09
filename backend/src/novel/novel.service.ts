@@ -9,7 +9,8 @@ import {
 } from '../common/text';
 import { SearchService } from './search.service';
 import { RANK_BOARD, renderRankBoard } from './rank-board';
-import { analyzeBook, chapterFindings, PassReport } from './pass-review';
+import { analyzeBook, chapterFindings, rankFindings, PassReport } from './pass-review';
+import { checkTitle, rankTitles } from './title-check';
 import { buildDocx, safeFileName, DocxSection } from '../common/docx';
 import { PLATFORMS, getPlatform, tagWhitelist } from '../platform/platform.config';
 import {
@@ -695,7 +696,13 @@ ${opinionLine}
 
 请给 **4 个完整开书方案**，硬性要求：
 1) **男女频都要有**（至少各 1 个），题材不许重复，金手指不许重复；
-2) 书名要像${p.name}在售的网文（如「重生1998：XXX」「开局XXX」「穿成XXX后」这类），12 字以内、带钩子；
+2) 书名是**吸量第一关**，按下面的规格起，起完会被机器按判据硬扫，不合规的会被打回：
+   - 长度 6-18 字（上限 22），书城一行放得下；
+   - 必须带**题材关键词**（重生/系统/年代/高考/神医/直播…），否则算法认不出赛道、读者搜不到；
+   - 必须带**冲突或反差信号**（开局/穿成/被赶/退婚/逆袭/偏要…），否则点击率上不去；
+   - 鼓励「主标题：副标题」式（如「高考前三天：我靠邮票IC卡造出中国芯」），信息量足、便于打标签；
+   - 禁文艺腔（那年/浮生/岁月/时光/烟雨…好听但没人点）、禁生僻字、禁英文单词、
+     禁导流词（微信/QQ/加群/公众号）、禁别家平台名（起点/晋江/阅文）、禁极限词（第一/最强/史上最）；
    4 个之间不得近似，也不许与上面榜单出现过的作品重名/近名；
 3) 开篇钩子必须是**具体发生的一件事**（不是"他将何去何从"这类空话），且前 300 字就发生；
 4) 黄金三章骨架要写到"每章一件什么事、章末留什么钩"，第三章末必须抛出全书核心悬念；
@@ -711,15 +718,32 @@ ${opinionLine}
 {"plans":[{"title":"书名","channel":"男频|女频","genre":"题材(2-6字)","cheat":"金手指名","cheatMech":"机制+代价","sellPoint":"一句话卖点(≤30字)","hook":"开篇钩子：前300字发生的具体事件","chapters":[{"no":1,"name":"章名(2-8字)","synopsis":"本章发生什么(≤60字)","cliffhanger":"章末钩子"}],"why":"为什么这个能打(≤50字)"}]}`;
           let parsed = tryParseJson(await this.ai.chat(prompt, 180000), ['plans']) || {};
           let plans: any[] = Array.isArray(parsed.plans) ? parsed.plans : [];
-          // 书名撞车本地预检：与本地在榜库 + 本次榜单快照比对，撞车的排到后面并标注
+          // 书名双检：① 撞车（联网比对本地在榜库 + 本次榜单快照）② 平台判据硬扫（过审 + 吸量）
+          // 为什么两道都要：撞车是"跟别人太像"，判据是"平台收不收、读者点不点" —— 互不包含。
           plans = await Promise.all(plans.map(async (x: any) => {
             const t = cleanTitle(String(x.title || ''));
             if (!t) return null;
             const local = await this.search.localMatches(t, 0.7).catch(() => []);
             const boardHit = local.length ? local[0].title : '';
-            return { ...x, title: t, dupRisk: boardHit ? 'high' : 'low', dupNote: boardHit ? `与在榜作品《${boardHit}》近似` : '' };
+            const review = checkTitle(t, { existing: (b.titles || []).slice(0, 40) });
+            return {
+              ...x,
+              title: t,
+              dupRisk: boardHit ? 'high' : 'low',
+              dupNote: boardHit ? `与在榜作品《${boardHit}》近似` : '',
+              titleReview: review,
+            };
           })) as any[];
-          plans = plans.filter(Boolean).sort((a: any, b: any) => (a.dupRisk === 'high' ? 1 : 0) - (b.dupRisk === 'high' ? 1 : 0));
+          // 排序：能过审的 > 不撞车的 > 吸量分高的
+          plans = plans.filter(Boolean).sort((a: any, b: any) => {
+            const ap = a.titleReview && a.titleReview.pass ? 1 : 0;
+            const bp = b.titleReview && b.titleReview.pass ? 1 : 0;
+            if (ap !== bp) return bp - ap;
+            const ad = a.dupRisk === 'high' ? 1 : 0;
+            const bd = b.dupRisk === 'high' ? 1 : 0;
+            if (ad !== bd) return ad - bd;
+            return (b.titleReview?.score || 0) - (a.titleReview?.score || 0);
+          });
           box.plans = plans.slice(0, 5);
           await this.prisma.novel.update({
             where: { id },
@@ -1378,7 +1402,11 @@ mid = 有近似结构但可用剧情拉开；high = 直接撞在榜热书。
     if (t === n.title) throw new Error('和现在的书名一样，等于没改');
     const basePlot = String(bible.coreSetting || n.sellPoint || '').slice(0, 120);
     const [r] = await this.batchVerifyTitles(n, bible, [t], basePlot);
-    return r || { title: t, risk: 'mid', note: '未取到预检结论', plot: basePlot };
+    const base: any = r || { title: t, risk: 'mid', note: '未取到预检结论', plot: basePlot };
+    // 书名是吸量第一关 —— 除了查撞车（联网），还要按平台判据硬扫一遍：能不能过审、够不够吸量。
+    // 这一步是纯代码算的，秒出，不依赖 AI，也不会因为联网失败就没有结论。
+    const review = checkTitle(t, { existing: [String(n.title || '')].filter(Boolean) });
+    return { ...base, titleReview: review };
   }
 
   /**
@@ -1391,10 +1419,22 @@ mid = 有近似结构但可用剧情拉开；high = 直接撞在榜热书。
     const seed = await this.genTitles(n, exclude.concat([n.title]));
     const plans = await this.safeTitlePlans(n, bible, seed, (bible.coreSetting || n.sellPoint || '').slice(0, 120))
       .catch(() => []);
+    // 书名先过判据这一关：能过审的排前面、同档按吸量分降序。
+    // 撞车预检（联网）可能因为网络失败返回空，判据硬扫永远有结论，所以放在最后兜底。
+    const reviewed = rankTitles(plans.map((x) => String(x.title || '')).filter(Boolean),
+      { existing: [String(n.title || ''), ...exclude].filter(Boolean) });
+    const byTitle = new Map(reviewed.map((r) => [r.title, r]));
+    const ordered = [...plans].sort((a: any, b: any) => {
+      const ra: any = byTitle.get(String(a.title || '')) || { pass: true, score: 0 };
+      const rb: any = byTitle.get(String(b.title || '')) || { pass: true, score: 0 };
+      if (ra.pass !== rb.pass) return ra.pass ? -1 : 1;
+      return rb.score - ra.score;
+    });
     return {
-      titleSuggestions: plans.map((x) => x.title),
-      titleChecks: plans,
-      noneSafe: plans.length === 0,
+      titleSuggestions: ordered.map((x) => x.title),
+      // 每个候选都带上判据结论，前端才能显示"这个名 82 分 / 那个名有硬伤"
+      titleChecks: ordered.map((x: any) => ({ ...x, titleReview: byTitle.get(String(x.title || '')) })),
+      noneSafe: ordered.length === 0,
     };
   }
 
@@ -2185,7 +2225,11 @@ ${lines}${dupLine}
    *
    * 只让 AI 改文字不改情节，是为了收敛：改情节会牵动人名、伏笔、台账，越改越乱。
    */
-  private polishFindings(content: string, words: number): string[] {
+  /**
+   * 打磨前的机器自查。
+   * @param isGolden 是否黄金三章 —— 验证期曝光全压在前三章，爽点密度要求更高
+   */
+  private polishFindings(content: string, words: number, isGolden = false): string[] {
     const t = String(content || '');
     const out: string[] = [];
     const len = t.replace(/\s/g, '').length;
@@ -2207,14 +2251,17 @@ ${lines}${dupLine}
     if (!/[？?！!]/.test(tail) && !/(说|喊|道|问|喝|笑)[：:"“”]/.test(tail)) {
       out.push('章末没有对话或强动作，钩子不够硬');
     }
+    // 冲榜判据（章首钩子 / 章末钩子 / 水段 / 爽点密度）：
+    // 过审只保证"能发"，这几条决定"有没有量"。打磨必须两条一起满足。
+    out.push(...rankFindings(t, isGolden));
     return out;
   }
 
   /** 打磨一章：有问题就让 AI 改一版，改完复检。返回有没有真改动 */
-  private async polishChapterOnce(id: string, chId: string, words: number) {
+  private async polishChapterOnce(id: string, chId: string, words: number, isGolden = false) {
     const ch: any = await this.prisma.chapter.findUnique({ where: { id: chId } });
     if (!ch || !ch.content) return { changed: false, note: '章节没有正文' };
-    const findings = this.polishFindings(ch.content, words);
+    const findings = this.polishFindings(ch.content, words, isGolden);
     if (!findings.length) return { changed: false, note: '文字达标，无需打磨' };
 
     const prompt = `你是网文资深责编，负责**最后一遍文字打磨**。
@@ -2237,7 +2284,7 @@ ${ch.content}`;
     // AI 偷懒只给片段（比原文短太多）→ 宁可不改，也不能把正文写残
     if (text.length < ch.content.length * 0.8) return { changed: false, note: 'AI 返回的正文过短，已放弃本次打磨' };
     await this.prisma.chapter.update({ where: { id: chId }, data: { content: text } as any });
-    const left = this.polishFindings(text, words);
+    const left = this.polishFindings(text, words, isGolden);
     return { changed: true, note: `改了 ${findings.length} 处问题${left.length ? `，还剩 ${left.length} 处` : '，已达标'}` };
   }
 
@@ -2280,7 +2327,8 @@ ${ch.content}`;
     const ch: any = await this.prisma.chapter.findUnique({ where: { id: chId } });
     if (!ch || !ch.content) return { changed: false, note: '章节没有正文', before: 0, after: 0 };
     const before = analyzeBook([{ order: Number(ch.order), title: ch.title, content: ch.content }]).score;
-    const findings = chapterFindings(ch.content, words);
+    // 过审项 + 冲榜项一起查：只改过审项会出现"能发但没人看"，两条都是标准
+    const findings = [...chapterFindings(ch.content, words), ...rankFindings(ch.content, Number(ch.order) <= 3)];
     if (!findings.length) return { changed: false, note: '各项判据已达标，无需清洗', before, after: before };
 
     const prompt = `你是网文平台的**签约审核视角**修稿人。下面这章正文被平台机器审判定命中若干"低质"特征，
@@ -2437,7 +2485,8 @@ ${ch.content}`;
       run: async () => {
         let note = '';
         for (let r = 1; r <= 2; r++) {
-          const res = await this.polishChapterOnce(id, c.id, n.chapterWords || 2000);
+          // 前三章按"黄金三章"标准磨：验证期的曝光全压在这三章上，爽点密度要求更高
+          const res = await this.polishChapterOnce(id, c.id, n.chapterWords || 2000, Number(c.order) <= 3);
           note = res.note || '';
           if (!res.changed) break;
           if (/已达标/.test(note)) break;
