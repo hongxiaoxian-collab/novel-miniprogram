@@ -56,4 +56,15 @@
 - 作品归属：新建作品带 userId；**历史作品 userId 为空且对所有登录用户仍可见**——
   这是刻意设计，避免作者一登录就以为作品丢了。
 - 等级差异全部集中在 `backend/src/auth/plan.ts` 的 `PLANS`，业务代码无 `if(level==='vip')`。
-  **配额目前只统计展示、不做拦截**，等作者给具体要求再接入。
+  **配额已接入拦截**（2026-10-10）：三档统一 `dailyChapters=4 / dailyWords=10000 / dailyNewNovels=1`，
+  游客另加 `maxNovels=2` + 每章字数锁死 2000 不可调。每平台最多 1 部「在写」。
+
+## 封面出图 & 云函数（2026-10-10 踩通，易再踩）
+- **`backend/cloudfunctions/ai-write/index.js` 改了必须单独部署**，后端 tarball 里它不生效。
+  `cli.bat cloud functions deploy --env zhicheng-novel-d9g7rdxjo798da6d0 --paths <ai-write目录> --project <项目根> --port <IDE端口>`。
+- 生图**只能走云函数**（生文额度只认小程序端/云函数来源，服务器 API Key 直连会被拒）。
+  出图坏了的外在表现就是「小程序上还是那张扁平矢量图」（前端 `coverImg` 为空 → 退回 canvas）。
+- 网关 `HTTP/1.1 443 Unknown` + `x-cloudbase-upstream-status-code: 443` = 云函数 `443 UserCodeError`，
+  **多数只是函数在 `Updating`**，等 1-3 分钟重试；别急着重装依赖。
+- 模型有 **QPM 上限**，「一键开书」一次七八次调用必然限流 —— `cloudbase.service` 的 `callFn`
+  已内置 15s/30s/60s 退避重试，新增 AI 调用务必走它。

@@ -19,7 +19,8 @@ import { analyzeBook, chapterFindings, rankFindings, PassReport } from './pass-r
 import { checkTitle, rankTitles } from './title-check';
 import { buildDocx, safeFileName, DocxSection } from '../common/docx';
 import {
-  composeCover, scenePromptOf, wrapCoverPrompt, coverSubtitle, cleanScene, fallbackScene, CoverMeta,
+  composeCover, scenePromptOf, wrapCoverPrompt, coverSubtitle, cleanScene, fallbackScene,
+  normalizeCoverLines, titleNeedsAiSplit, coverLinesPrompt, CoverMeta,
 } from './cover-image';
 import { PLATFORMS, getPlatform, tagWhitelist } from '../platform/platform.config';
 import {
@@ -610,6 +611,9 @@ export class NovelService {
             || {};
           const title = cleanTitle(String(parsed.title || '').trim());
           if (!title) throw new Error('AI 没给出书名，请再点一次');
+          // 封面断行不在这里做：这里给的书名后面还会被大纲步骤改写，
+          // 提前断好的行必然与最终书名对不上（实测：定位出了「都市神医归来/震江湖」，
+          // 定稿却是「外卖小哥的银针局」）。断行统一推迟到出图时按最终书名断一次。
           // 目标读者必须落在平台自己的枚举里（番茄：男频/女频；七猫：男生/女生）
           const wanted = String(parsed.targetReader || '').trim();
           const reader = p.readerOptions.find((x) => x === wanted) || p.readerOptions[0];
@@ -621,6 +625,8 @@ export class NovelService {
               targetReader: reader,
               genre: String(parsed.genre || '').slice(0, 12) || null,
               outline: String(parsed.outline || '').slice(0, 2000) || null,
+              // 书名马上要被大纲步骤改写，旧的断行必须作废，否则封面会拿错行的旧书名
+              coverLines: null,
             } as any,
           });
           return { title, reader, note: String(parsed.reason || '').slice(0, 120) };
@@ -726,6 +732,8 @@ export class NovelService {
 【书名铁律】① 8-14 字，必须含题材词（一眼看出讲什么）；② 不带导流词（加微信 / 看全文 / 搜…）；
 ③ 不带极限词（最强 / 第一 / 天下无双）；④ 拒绝文艺腔（"那年烟花微凉"这种没有题材信息的不要）。
 【过审铁律】开篇不做梦境与前世闪回，直接进冲突；反派要当场出手；主角会受压但能翻盘。
+（封面书名断行不用你管：出图时会按**最终定稿的书名**单独断一次 —— 这里给的书名后面还会被大纲步骤改，
+  在这断行必然对不上。）
 ${opinion ? `\n【作者的方向要求（必须落实）】${opinion}` : ''}
 ${avoidLine}
 只输出 JSON（不要解释、不要 markdown 围栏）：
@@ -4113,8 +4121,12 @@ protagonists 提取 3-5 个最重要人物，name 必须来自上面人物表；
     const W = 900;
     const title = meta.title;
     const palette = this.parseColor(dto.color);
+    // 有断好的行就用它（不会切词）；没有就按最终书名现断一次并存库复用
+    const lines = await this.resolveCoverLines(id, n, title);
     const res = await composeCover(base, {
-      title,
+      title: lines ? lines[0] : title,
+      title2: lines ? lines[1] : undefined,
+      noSplit: lines ? !lines[1] : undefined,
       // 8 字以内单行更醒目；超长书名自动拆两行（换行点优先在标点后）
       top: 0.665,
       outW: W,
@@ -4158,6 +4170,49 @@ protagonists 提取 3-5 个最重要人物，name 必须来自上面人物表；
       at: n.coverAt || null,
       imageEnabled: this.ai.imageEnabled,
     };
+  }
+
+  /**
+   * 取这本书存好的封面断行。
+   * 书名在出图后被改过 → 存的断行与现名对不上 → 返回 null，退回自动断行。
+   */
+  private storedCoverLines(n: any, title: string): [string, string | null] | null {
+    try {
+      const arr = normalizeCoverLines(JSON.parse(n?.coverLines || 'null'), title);
+      return arr ? [arr[0], arr[1] ?? null] : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 定出封面上的两行书名。
+   *
+   * 顺序：库里有且对得上 → 直接用；否则只有「无标点 + 超 7 字」这类硬切一定会切词的书名
+   * 才值得花一次模型调用去断（中文没词间空格，只有模型知道词在哪；Intl.Segmenter
+   * 对网文造词不可靠，实测「实习生」→「实习/生」）。断完写回 coverLines，下次复用。
+   * 模型不靠谱或调用失败一律返回 null，退回 splitTitle 的机械断行 —— 断得丑可以忍，
+   * 封面书名和后台书名对不上不能忍。
+   */
+  private async resolveCoverLines(
+    id: string, n: any, title: string,
+  ): Promise<[string, string | null] | null> {
+    const stored = this.storedCoverLines(n, title);
+    if (stored) return stored;
+    if (!titleNeedsAiSplit(title)) return null;
+    try {
+      const raw = await this.ai.chat(coverLinesPrompt(title), 60000);
+      const parsed: any = tryParseJson(raw, ['lines']) || {};
+      const arr = normalizeCoverLines(parsed.lines, title);
+      if (!arr) return null;
+      await this.prisma.novel.update({
+        where: { id },
+        data: { coverLines: JSON.stringify(arr) } as any,
+      });
+      return [arr[0], arr[1] ?? null];
+    } catch {
+      return null; // 断行失败不拖累出图
+    }
   }
 
   /** 封面图落盘目录（服务器上就是 C:/erp/novel-backend/uploads/covers） */

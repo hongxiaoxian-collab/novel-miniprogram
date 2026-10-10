@@ -118,6 +118,59 @@ export function splitTitle(
 }
 
 /**
+ * 书名会不会被「硬切」。
+ *
+ * 无标点、又超过 7 字的书名，`splitTitle` 只能按中点切 —— 很可能会切到词中间
+ * （《实习生拿祖传针救了首富》→「实习生拿祖 / 传针救了首富」，把「祖传」劈了；
+ *   而 Intl.Segmenter 对网文造词同样不可靠，「实习生」被切成「实习 / 生」）。
+ * 中文没有词间空格，只有模型知道词在哪 —— 所以才要它来断。
+ *
+ * 返回 true = 该花一次模型调用去断行。
+ */
+export function titleNeedsAiSplit(title: string): boolean {
+  const t = String(title || '').trim();
+  if (!t) return false;
+  for (const sep of ['：', ':', '，', ',', '！', '!', '·', ' ']) {
+    const i = t.indexOf(sep);
+    if (i > 0 && t.slice(0, i).trim().length >= 2 && t.slice(i + 1).trim().length >= 2) return false;
+  }
+  return [...t].length > 7;
+}
+
+/** 让模型把书名断成两行（只断行，不改字）。 */
+export function coverLinesPrompt(title: string): string {
+  return `把下面这个中文网文书名断成两行，用于封面排版。
+书名：${title}
+
+【硬性要求】
+1. **绝对不许把一个词切开**：「祖传」不能拆成「祖」/「传」，「实习生」不能拆成「实习」/「生」。
+2. 每行 2-8 字，断点要落在语义停顿处，读起来自然。
+3. 两行拼起来必须与原书名**完全一致**（一个字都不能改、不能增删）。
+4. 只输出 JSON，不要解释、不要 markdown 围栏：{"lines":["第一行","第二行"]}`;
+}
+
+/**
+ * 校验 AI 给的两行书名。
+ *
+ * 拼回去必须与原书名一致（忽略空白与标点）；不一致一律返回 null 退回自动断行 ——
+ * 宁可断得难看一点，也不能出现「封面书名 ≠ 后台书名」。
+ */
+export function normalizeCoverLines(lines: unknown, title: string): string[] | null {
+  if (!Array.isArray(lines)) return null;
+  const strip = (s: unknown) => String(s ?? '').replace(/[\s：:，,、·！!？?。.－\-—|｜「」“”"']/g, '');
+  const arr = lines.map(strip).filter(Boolean).slice(0, 2);
+  if (!arr.length) return null;
+  const want = strip(title);
+  if (!want) return null;
+  if (arr.length === 1) return arr[0] === want ? arr : null;
+  if (arr.join('') !== want) return null;
+  // 长书名里冒出 1 字的行基本都是模型乱断（「我 / 在诸天万界当房东」），
+  // 这种宁可退回自动断行——只有书名本来就短（≤4 字）才允许单行两字。
+  if ([...want].length > 4 && arr.some((s) => [...s].length < 2)) return null;
+  return arr;
+}
+
+/**
  * 在 AI 底图上叠加书名/笔名/题材标签。
  * 输出恒为 JPEG（RGBA 的 PNG 在部分平台上传/审核会出问题）。
  */

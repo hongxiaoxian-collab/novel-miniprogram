@@ -50,3 +50,9 @@ backend/.tmp-patch/
 .DS_Store
 Thumbs.db
 nul
+
+# 单测临时编译产物
+backend/.tmp-split/
+
+# 单测临时编译产物
+backend/.tmp-split/

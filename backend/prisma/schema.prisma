@@ -61,6 +61,7 @@ model Novel {
   coverImage    String?  // 封面「方案」JSON（canvas 兜底用：{v:2,plan,layout} / {v:1,seed}）
   coverFile     String?  // 真图封面在服务器上的相对路径（covers/xxx.jpg）。由生图底图 + 服务端叠字合成
   coverPrompt   String?  // 出这张封面用的生图提示词（可复现、可换字重出，不用重新生图）
+  coverLines    String?  // JSON：AI 断好的两行书名，保证不把词切开（如 ["实习生拿祖传","针救了首富"]）
   coverAt       DateTime? // 上次生成真图封面的时间
   genre         String?  // 题材（都市/玄幻/重生/机械…）
   intro         String?  // 作品简介（上架用，180-220 字）
