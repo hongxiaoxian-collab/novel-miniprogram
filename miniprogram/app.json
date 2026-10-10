@@ -1,6 +1,7 @@
 {
   "pages": [
     "pages/works/works",
+    "pages/onboard/onboard",
     "pages/guide/guide",
     "pages/wizard/wizard",
     "pages/intro/intro",

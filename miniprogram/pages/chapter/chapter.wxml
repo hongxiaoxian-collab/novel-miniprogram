@@ -42,7 +42,7 @@
   </view>
   <view wx:if="{{editing}}" class="btn" bindtap="save">保存修改</view>
   <view wx:else class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="save">✎ 编辑本章</view>
-  <view class="btn" bindtap="pickNextCount">{{busy && jobText ? '⏳ ' + jobText : '✍️ 续写第 ' + (flat.length + 1) + ' 章（可一次续更 3/5/10 章）'}}</view>
+  <view class="btn" bindtap="pickNextCount">{{busy && jobText ? '⏳ ' + jobText : '✍️ 续写第 ' + (flat.length + 1) + ' 章（可一次续更 2/3/4 章，每天上限 1 万字）'}}</view>
   <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="openRewrite">↺ 重写本章（填原因）</view>
   <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="pickAudit">
     {{auditing ? '⏳ 体检中…' : '🩺 一键体检（点这里选：查矛盾 / 查撞车 / 都查）'}}<text wx:if="{{openBadge}}" class="badge">还有 {{openBadge}} 处没修</text>

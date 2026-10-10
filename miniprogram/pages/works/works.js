@@ -3,6 +3,7 @@ const { request } = require('../../utils/request');
 const { copy } = require('../../utils/clipboard');
 const { getPen, setPen } = require('../../utils/pen');
 const { loadMe, loginNow } = require('../../utils/account');
+const { waitJob, progOf } = require('../../utils/task');
 
 /** 首次进入的 AI 生成内容声明（只弹一次，版本号变更时会重新弹） */
 const AI_NOTICE_KEY = 'aiNoticeV1';
@@ -11,7 +12,16 @@ const AI_NOTICE_TEXT =
   '发布前请自行核校内容，勿用于违法违规或侵犯他人权益的用途。';
 
 Page({
-  data: { platform: 'fanqie', novels: [], pen: '', acct: null },
+  data: {
+    platform: 'fanqie',
+    novels: [],     // 在写（该平台最多 1 部）
+    rejected: [],   // 被拒的（不占名额，留着当样本与教训）
+    archived: [],   // 已归档（老作品升级过来的，不占名额但一律保留、可转回在写）
+    pen: '',
+    acct: null,
+    prog: { show: false, pct: 0, done: 0, total: 0, current: '', steps: [], stage: '' },
+    busy: false,
+  },
   onShow() {
     this.setData({ platform: app.globalData.platform, pen: getPen() });
     this.loadNovels();
@@ -20,7 +30,15 @@ Page({
   },
   /** 顶部账号条：登录态 + 当前等级 + 作品数。以前登录是"隐形"的，作者根本看不到自己登没登 */
   async loadAccount() {
-    try { this.setData({ acct: await loadMe() }); } catch (e) { /* 静默：账号信息拿不到不影响写稿 */ }
+    try {
+      const acct = await loadMe();
+      this.setData({ acct });
+      // 【新架构】首次进入强制走开书向导：下载 App → 注册 → 实名 → 笔名 → 未签约 → 一键开书。
+      // 登录用户以后端为准（换手机也只走一次）；游客看本地，避免每次进来都被拦。
+      const remote = acct && acct.onboard && acct.onboard.onboarded;
+      const local = !!wx.getStorageSync('onboardDone');
+      if (!remote && !local) wx.redirectTo({ url: '/pages/onboard/onboard' });
+    } catch (e) { /* 静默：账号信息拿不到不影响写稿 */ }
   },
   async onLogin() {
     const r = await loginNow();
@@ -43,10 +61,20 @@ Page({
       confirmText: '我知道了',
     });
   },
+  /**
+   * 列表按「在写 / 已拒」分开。
+   * 每个平台同时只准 1 部在写，被拒的自动腾出名额 —— 但被拒稿要留着：
+   * 它带着平台真实的驳回原因，是下次开书最重要的避坑依据。
+   */
   async loadNovels() {
     try {
       const list = await request(`/novel?platform=${this.data.platform}`);
-      this.setData({ novels: list || [] });
+      const all = list || [];
+      this.setData({
+        novels: all.filter((n) => (n.status || 'writing') === 'writing'),
+        rejected: all.filter((n) => n.status === 'rejected'),
+        archived: all.filter((n) => n.status === 'archived'),
+      });
     } catch (e) {
       wx.showToast({ title: '加载失败', icon: 'none' });
     }
@@ -78,9 +106,82 @@ Page({
       },
     });
   },
+  /**
+   * 归档作品转回「在写」。
+   * 老作品升级后被归档了，作者想接着写它时点这个 —— 会先确认该平台没有别的在写作品。
+   */
+  async backToWriting(e) {
+    const id = e.currentTarget.dataset.id;
+    const title = e.currentTarget.dataset.title || '这部作品';
+    if ((this.data.novels || []).length > 0) {
+      wx.showToast({ title: '该平台已有一部在写的作品，先把它标记被拒或归档', icon: 'none', duration: 2800 });
+      return;
+    }
+    wx.showLoading({ title: '转回在写…', mask: true });
+    try {
+      await request(`/novel/${id}`, 'PUT', { status: 'writing' });
+      wx.hideLoading();
+      wx.showToast({ title: '已转回在写', icon: 'success' });
+      this.loadNovels();
+      this.loadAccount();
+    } catch (err) {
+      wx.hideLoading();
+      const msg = (err && err.message) || '操作失败';
+      wx.showToast({ title: msg.slice(0, 30), icon: 'none', duration: 2800 });
+    }
+  },
+
+  /**
+   * 【被拒了 → 自动重开一本】
+   * 旧作品保留（带着驳回原因当样本），该平台名额腾出后立刻开一本新的，
+   * AI 会拿到"上一部为什么被拒"，强制换方向，而不是只换个书名重写一遍。
+   */
+  async restart(e) {
+    if (this.data.busy) return;
+    const id = e.currentTarget.dataset.id;
+    const title = e.currentTarget.dataset.title || '这部作品';
+    const res = await new Promise((resolve) => {
+      wx.showModal({
+        title: '被拒后自动重开一本',
+        content: `《${title}》会保留在下面（驳回原因一起留档，作为以后开书的避坑依据）。\n\n现在在同一平台开一部新书，AI 会避开这次被拒的原因重新定书名、题材和大纲。要开始吗？`,
+        confirmText: '开新书',
+        success: (r) => resolve(r.confirm),
+        fail: () => resolve(false),
+      });
+    });
+    if (!res) return;
+    this.setData({ busy: true, prog: progOf('被拒重开一本', { steps: [], stage: 'running' }) });
+    wx.showLoading({ title: '正在开新书…', mask: true });
+    try {
+      const r = await request(`/novel/${id}/restart`, 'POST', {});
+      app.globalData.novelId = r.id;
+      wx.hideLoading();
+      await waitJob(r.id, (p) => this.setData({ prog: progOf('被拒重开一本', p) }), 20 * 60 * 1000);
+      wx.showToast({ title: '新书已开好', icon: 'success' });
+      this.setData({ prog: { show: false, steps: [] } });
+      this.loadNovels();
+      wx.navigateTo({ url: `/pages/intro/intro?id=${r.id}` });
+    } catch (err) {
+      wx.hideLoading();
+      wx.showToast({ title: ((err && err.message) || '开新书失败').slice(0, 30), icon: 'none', duration: 3000 });
+    }
+    this.setData({ busy: false });
+  },
+
   // 新建小说 = 全新一本：带 fresh=1 进去，向导页不会再恢复上一部作品的草稿
   // （以前不带参数，进去会自动恢复上次没走完的进度，作者点"新建"却看到旧小说，以为删不掉）
-  goWizard() { wx.navigateTo({ url: '/pages/wizard/wizard?fresh=1' }); },
+  goWizard() {
+    // 同平台最多 1 部在写：已有就直接说明，别让作者点进去填半天才被后端一句"超限"打回
+    if ((this.data.novels || []).length > 0) {
+      wx.showToast({
+        title: '同平台最多 1 部在写。这部被拒就去作品页点「被拒」，会自动重开一本',
+        icon: 'none', duration: 3000,
+      });
+      return;
+    }
+    wx.navigateTo({ url: '/pages/wizard/wizard?fresh=1' });
+  },
+  goOnboard() { wx.navigateTo({ url: '/pages/onboard/onboard' }); },
   goGuide() { wx.navigateTo({ url: '/pages/guide/guide' }); },
   goMe() { wx.navigateTo({ url: '/pages/me/me' }); },
   /**

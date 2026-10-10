@@ -17,6 +17,10 @@ backend/prisma/*.db-shm
 *.sqlite
 *.sqlite3
 
+# 封面成品与生图底图（运行时产物，不进代码仓）
+backend/uploads/
+backend/uploads/**
+
 # 环境变量 / 密钥
 .env
 .env.local

@@ -20,6 +20,11 @@ model User {
                         // 属敏感凭证：不进日志、不出接口。
   quotaJson   String?   // JSON：手工覆盖的配额（运营调额用），未设则取套餐默认值
   status      String    @default("active") // active | banned（banned 后禁止写操作，数据保留便于申诉）
+  // ---- 首次进入的「开书向导」----
+  penName     String?   // 笔名：向导第④步确认一次，之后所有作品与封面自动带上
+  authorIntro String?   // 作者简介（作家页 / 上架资料用）
+  onboardJson String?   // JSON：向导五步进度 {download,register,realname,pen,contract}
+  onboarded   Boolean   @default(false) // 向导走完才能进作品列表（首次进入强制走一次）
   createdAt   DateTime  @default(now())
   lastLoginAt DateTime?
   novels      Novel[]
@@ -53,12 +58,22 @@ model Novel {
   title         String
   penName       String?  // 笔名
   authorIntro   String?  // 作家简介
-  coverImage    String?  // AI 生成封面的 URL 或 base64
+  coverImage    String?  // 封面「方案」JSON（canvas 兜底用：{v:2,plan,layout} / {v:1,seed}）
+  coverFile     String?  // 真图封面在服务器上的相对路径（covers/xxx.jpg）。由生图底图 + 服务端叠字合成
+  coverPrompt   String?  // 出这张封面用的生图提示词（可复现、可换字重出，不用重新生图）
+  coverAt       DateTime? // 上次生成真图封面的时间
   genre         String?  // 题材（都市/玄幻/重生/机械…）
   intro         String?  // 作品简介（上架用，180-220 字）
   protagonists String?  // JSON：主要人物 [{name,role,desc}]
   targetReader  String?  // 男频/女频（七猫：男生/女生）
-  contractStatus String  @default("signing") // signing(签约中) | signed(已签约)
+  // ---- 在写状态：每个平台同时最多 1 部「在写」，被拒后腾出名额 ----
+  status        String   @default("writing") // writing(在写) | rejected(被拒) | archived(已归档/完结下架)
+  rejectReason  String?  // 平台驳回原因（被拒时作者填/选，重开一本时作为 AI 避坑依据）
+  rejectedAt    DateTime?
+  parentId      String?  // 上一部作品的 id（被拒后自动重开的，指向被拒那本）
+  autoCreated   Boolean  @default(false) // true = 「被拒后自动重开」生成的，不是作者手动建的
+  timeline      String?  // 时间线（自动生成：分卷 × 真实时间锚点 × 关键事件，与大纲分开存便于单独展示）
+  contractStatus String  @default("unsigned") // unsigned(未签约·默认) | signing(签约中) | signed(已签约)
   contractMode  String?  // 签约模式
   serialMode    String?  // 连载模式（连载中/日更等）
   tags          String?  // JSON：{reading:{主分类,主题,角色,情节}, content:{情节,情感,人设,世界观}}
@@ -94,9 +109,38 @@ model Novel {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   chapters      Chapter[]
+  feedbacks     Feedback[]
 
   @@index([userId])
   @@index([guestKey])
+}
+
+/**
+ * 平台反馈原始数据（被拒 / 过审）。
+ *
+ * 【为什么单独建表】作者从平台复制回来的拒稿原话，是唯一真实的外部裁判信号 ——
+ * 我们自己的体检再准也只是"自评"。这批数据必须留全：驳回原文 + 当时的作品快照 + AI 总结，
+ * 以后改写作规则（铁律 / 判据权重）时拿它对表，而不是凭印象拍脑袋。
+ *
+ * 【铁律】只增不删：即使后来改稿重过，那条被拒记录也照留（它是样本，不是状态）。
+ */
+model Feedback {
+  id           String   @id @default(cuid())
+  novelId      String
+  novel        Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  userId       String?
+  guestKey     String?
+  platform     String   // fanqie | qimao
+  kind         String   // rejected(被平台拒) | passed(过审/通过)
+  reason       String   @default("") // 平台驳回原文（作者从平台复制粘贴，一字不改）
+  snapshot     String?  // JSON：当时的作品快照（书名/卖点/男女频/题材/大纲/简介/标签）
+  summary      String?  // AI 总结：归到哪一类短板 + 下次怎么避免（沉淀成写作规则的依据）
+  chapterCount Int      @default(0) // 被拒时已写了几章
+  wordCount    Int      @default(0) // 被拒时已写了多少字
+  createdAt    DateTime @default(now())
+
+  @@index([novelId])
+  @@index([kind])
 }
 
 // 章节

@@ -1,0 +1,116 @@
+<ai-note text="本小程序的书名、大纲、简介、封面与正文均由人工智能（AI）生成，仅供参考。发布前请自行核校，并在平台完成注册与实名。" />
+
+<!-- ① 默认平台：番茄。可切七猫，两个平台各能有一部在写 -->
+<view class="card">
+  <view class="card-h">① 先定投稿平台</view>
+  <view class="muted">默认已帮你选好「番茄」。番茄和七猫各能同时有 1 部在写的作品，每天最多写 1 万字（约 4 章）。</view>
+  <view class="tagrow" style="margin-top:16rpx">
+    <view class="chip {{platform==='fanqie'?'on':''}}" data-p="fanqie" bindtap="pickPlatform">番茄</view>
+    <view class="chip blue {{platform==='qimao'?'on':''}}" data-p="qimao" bindtap="pickPlatform">七猫</view>
+  </view>
+</view>
+
+<!-- ② 下载作家助手 App -->
+<view class="card">
+  <view class="row">
+    <view class="card-h">② 下载作家助手 App</view>
+    <view class="tick {{steps.download?'on':''}}">{{steps.download?'✓ 已完成':'待完成'}}</view>
+  </view>
+  <view class="muted" style="line-height:1.8">
+    在手机应用商店搜索下面的名字下载安装（我不放外链，避免装到假的）：
+  </view>
+  <view class="tagrow" style="margin-top:14rpx">
+    <view class="chip" bindtap="copyKw" data-kw="番茄作家助手">复制「番茄作家助手」</view>
+    <view class="chip blue" bindtap="copyKw" data-kw="七猫作家助手">复制「七猫作家助手」</view>
+  </view>
+  <view class="muted" style="margin-top:10rpx">复制后打开应用商店，粘贴到搜索框即可。</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="ok" data-step="download">✓ 我已下载安装</view>
+</view>
+
+<!-- ③ 注册账号 -->
+<view class="card">
+  <view class="row">
+    <view class="card-h">③ 注册作者账号</view>
+    <view class="tick {{steps.register?'on':''}}">{{steps.register?'✓ 已完成':'待完成'}}</view>
+  </view>
+  <view class="muted" style="line-height:1.8">
+    1. 用常用手机号注册（以后提现、找回账号都靠它）。<br/>
+    2. 记住登录方式，别用微信随机号注册 —— 换手机容易找不回。<br/>
+    3. 注册后先别急着建作品，回到这里继续下一步。
+  </view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="ok" data-step="register">✓ 我已注册</view>
+</view>
+
+<!-- ④ 实名认证 -->
+<view class="card">
+  <view class="row">
+    <view class="card-h">④ 实名认证</view>
+    <view class="tick {{steps.realname?'on':''}}">{{steps.realname?'✓ 已完成':'待完成'}}</view>
+  </view>
+  <view class="muted" style="line-height:1.8">
+    作家助手里点「我的 → 实名认证」，按提示填身份证 + 人脸核验。<br/>
+    不实名也能写，但拿不到稿费、也不能签约 —— 平台一律要求实名。
+  </view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="ok" data-step="realname">✓ 我已实名</view>
+</view>
+
+<!-- ⑤ 笔名：只确认一次，之后所有作品与封面自动带上 -->
+<view class="card">
+  <view class="row">
+    <view class="card-h">⑤ 确认笔名</view>
+    <view class="tick {{steps.pen?'on':''}}">{{steps.pen?'✓ 已确认':'待完成'}}</view>
+  </view>
+  <view class="muted">番茄和七猫都要求封面出现「书名 + 笔名」。这里定一次，之后所有作品自动带上；笔名一旦有作品在用，改名会让封面全部重做，所以想好再确认。</view>
+  <view class="row" style="margin-top:14rpx">
+    <input value="{{pen}}" bindinput="onPen" maxlength="16" placeholder="自己起一个，或让 AI 给几个"
+      style="flex:1;border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx;margin-right:12rpx" />
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="margin:0;padding:14rpx 26rpx" bindtap="recPen">{{pens.length ? '🔁 换一批' : '✨ AI 推荐'}}</view>
+  </view>
+  <block wx:if="{{pens.length}}">
+    <view class="muted" style="margin-top:12rpx">点一个选中（每次至少 3 个，都不满意再换一批）：</view>
+    <view class="tagrow" style="margin-top:8rpx">
+      <view class="chip {{pen===item?'on':''}} {{platform==='qimao'?'blue':''}}" wx:for="{{pens}}" wx:key="*this" data-t="{{item}}" bindtap="usePen">{{item}}</view>
+    </view>
+  </block>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="ok" data-step="pen">✓ 就这个笔名</view>
+</view>
+
+<!-- ⑥ 签约状态：默认未签约 -->
+<view class="card">
+  <view class="row">
+    <view class="card-h">⑥ 签约状态</view>
+    <view class="tick {{steps.contract?'on':''}}">{{steps.contract?'✓ 已确认':'待完成'}}</view>
+  </view>
+  <view class="state">未签约（新作者默认）</view>
+  <view class="muted" style="margin-top:8rpx">新书一律从「未签约」开始。哪天平台通知签约了，回作品页点「✅ 过审」改状态，我们会把这条记成一条成功样本。</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="ok" data-step="contract">✓ 确认未签约</view>
+</view>
+
+<!-- 一键开书 -->
+<view wx:if="{{!starting}}">
+  <view class="btn {{platform==='qimao'?'blue':''}}" bindtap="start">🚀 全部完成，一键开书</view>
+  <view class="muted" style="margin:16rpx 24rpx 40rpx;line-height:1.8">
+    点完这台机器会替你：起书名 → 定一句话卖点 → 选男频/女频 → 定题材 → 写全书大纲
+    → 生成分卷时间线 → 写作品简介与主要人物 → 选签约模式与阅读/内容标签 → 按情节画封面。
+    大约几分钟，中途退出也没关系，回来接着看进度。
+  </view>
+</view>
+
+<!-- 开书进度 -->
+<view wx:if="{{starting}}" class="pcard">
+  <view class="pcard-h">
+    <text class="pcard-t">🚀 一键开书</text>
+    <text class="pcard-n">{{prog.done}}/{{prog.total}}</text>
+  </view>
+  <view class="pbar"><view class="pbar-in {{platform==='qimao'?'blue':''}}" style="width:{{prog.pct}}%"></view></view>
+  <view class="pcard-cur">{{prog.current || '准备中…'}}</view>
+  <block wx:for="{{prog.steps}}" wx:key="key">
+    <view class="pcard-step {{item.status}}">
+      <text class="ico">{{item.status==='done'?'✓':(item.status==='running'?'⏳':(item.status==='failed'?'✗':'·'))}}</text>
+      <text>{{item.label}}<text wx:if="{{item.note}}"> · {{item.note}}</text></text>
+    </view>
+  </block>
+  <view class="pcard-hint" wx:if="{{prog.stage!=='failed'}}">中途退出也没关系，回来在作品列表里点这部书就能接着看。</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" wx:if="{{prog.stage==='failed'}}" bindtap="start">重试</view>
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" wx:if="{{prog.stage==='done'}}" bindtap="goIntro">去看我的小说 →</view>
+</view>

@@ -19,9 +19,14 @@ function shapeMe(r) {
     planName: (d.plan && d.plan.name) || '普通版',
     planCode: (d.plan && d.plan.code) || 'free',
     maxNovels: limits.maxNovels || 0,
+    activePerPlatform: limits.activePerPlatform || 1,
     dailyChapters: limits.dailyChapters || 0,
     dailyWords: limits.dailyWords || 0,
     wordPerChapter: limits.wordPerChapter || 0,
+    // 各平台在写数量：{fanqie:1, qimao:0} —— 每平台最多 1 部，界面直接显示"番茄 1/1"
+    active: d.active || {},
+    // 今天还能写多少字（每天 1 万字）
+    wordsLeft: Math.max(0, (limits.dailyWords || 0) - (usage.words || 0)),
     // 游客/低等级不给调每章字数，界面据此隐藏输入框并给出说明
     canEditWords: limits.chapterWordsEditable !== false,
     auditFullScan: !!limits.auditFullScan,
@@ -29,6 +34,8 @@ function shapeMe(r) {
     chapters: usage.chapters || 0,
     words: usage.words || 0,
     upsell: d.upsell || '',
+    // 首次向导：未走过就强制先走一遍（下载 App → 注册 → 实名 → 笔名 → 未签约）
+    onboard: d.onboard || { onboarded: false, steps: {}, penName: '' },
   };
 }
 

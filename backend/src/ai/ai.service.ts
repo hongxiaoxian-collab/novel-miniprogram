@@ -19,4 +19,17 @@ export class AiService {
       ? this.cloudbase.chat(prompt, timeoutMs)
       : this.coze.chat(prompt, timeoutMs);
   }
+
+  /** 生图是否可用（未配置云函数时封面只能退回 canvas 方案图） */
+  get imageEnabled(): boolean {
+    return this.cloudbase.imageEnabled;
+  }
+
+  /**
+   * 文字转图片，返回临时 URL。
+   * 只有云开发云函数通道能吃免费生图额度，所以这里不做 Coze 回落。
+   */
+  image(prompt: string, opts: { size?: string; seed?: number; imageModel?: string } = {}): Promise<string> {
+    return this.cloudbase.image(prompt, opts);
+  }
 }

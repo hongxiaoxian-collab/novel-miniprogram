@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "开书向导",
+  "navigationBarBackgroundColor": "#07c160",
+  "usingComponents": {
+    "ai-note": "/components/ai-note/ai-note"
+  }
+}

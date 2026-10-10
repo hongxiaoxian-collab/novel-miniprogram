@@ -19,7 +19,7 @@ export class CreateNovelDto {
   @IsOptional() @IsString()
   targetReader?: string;
 
-  @IsOptional() @IsIn(['signing', 'signed'])
+  @IsOptional() @IsIn(['unsigned', 'signing', 'signed'])
   contractStatus?: string;
 
   @IsOptional() @IsString()
@@ -30,6 +30,40 @@ export class CreateNovelDto {
 
   @IsOptional() @IsObject()
   tags?: Record<string, any>;
+}
+
+/**
+ * 【一键开书】作者只给平台（默认番茄）和笔名，书名 / 卖点 / 男女频 / 题材 / 大纲 /
+ * 时间线 / 简介 / 主角 / 签约模式 / 标签 / 封面全部由 AI 生成。
+ */
+export class QuickStartDto {
+  @IsOptional() @IsIn(['fanqie', 'qimao'])
+  platform?: string; // 不传 = 番茄（新架构默认平台）
+
+  @IsOptional() @IsString()
+  penName?: string;
+
+  @IsOptional() @IsString()
+  authorIntro?: string;
+
+  @IsOptional() @IsString()
+  opinion?: string; // 作者的一句话方向要求（可空）
+
+  @IsOptional() @IsString()
+  parentId?: string; // 被拒重开时指向被拒那本
+
+  @IsOptional() @IsNumber()
+  chapterWords?: number;
+
+  /** 「被拒重开」专用：把上一部的书名 / 驳回原因 / 大纲带进来，强制 AI 换方向 */
+  @IsOptional() @IsObject()
+  avoid?: { title?: string; reason?: string; outline?: string };
+}
+
+/** 平台反馈：被拒（填驳回原话）/ 过审（可填说明）。reason 一律原文留存 */
+export class RejectDto {
+  @IsOptional() @IsString()
+  reason?: string;
 }
 
 export class GenerateOutlineDto {
@@ -119,6 +153,40 @@ export class CoverPlanDto {
   exclude?: string[]; // 上一版用过的配色/道具，尽量别重复
 }
 
+export class CoverImageDto {
+  /** 换一换：换 seed / 换要求时传一下，避免出同一张 */
+  @IsOptional() @IsNumber()
+  seed?: number;
+
+  /** 「换一换」时给生图模型的额外要求，如"人物再靠近镜头一点""换夜景" */
+  @IsOptional() @IsString()
+  opinion?: string;
+
+  /** 手动指定画面脚本（不传则 AI 按这部作品的情节写） */
+  @IsOptional() @IsString()
+  scene?: string;
+
+  /** 书名（不传取作品名）。改了书名重出图时用，不用重新生图也能换字 */
+  @IsOptional() @IsString()
+  title?: string;
+
+  /** 笔名（不传取作品笔名） */
+  @IsOptional() @IsString()
+  author?: string;
+
+  /** 副标题/题材标签（不传按 目标读者·主分类·题材 自动拼） */
+  @IsOptional() @IsString()
+  sub?: string;
+
+  /** 只换字不重新生图：复用上次的底图（省一次生图额度） */
+  @IsOptional()
+  reuseBase?: boolean;
+
+  /** 书名主色 RGB，形如 "245,215,138" */
+  @IsOptional() @IsString()
+  color?: string;
+}
+
 export class GenerateChapterDto {
   @IsString()
   instruction: string; // 写稿指令（推进哪条线/回收哪个伏笔）
@@ -187,6 +255,15 @@ export class UpdateNovelDto {
 
   @IsOptional() @IsString()
   contractStatus?: string;
+
+  /** 作品状态：writing(在写) | rejected(被拒) | archived(已归档)。
+   *  被拒/归档都不占「每平台 1 部在写」的名额，转回 writing 时才重新占位并受名额检查。 */
+  @IsOptional() @IsIn(['writing', 'rejected', 'archived'])
+  status?: string;
+
+  /** 平台驳回原因（作者从平台复制的原话）；与 status=rejected 一起提交 */
+  @IsOptional() @IsString()
+  rejectReason?: string;
 
   @IsOptional() @IsString()
   contractMode?: string;

@@ -13,6 +13,7 @@ import {
   RecommendTopicDto,
   AuthorAssistDto,
   CoverPlanDto,
+  CoverImageDto,
   JobDto,
   TitleSuggestDto,
   DupFixDto,
@@ -20,6 +21,8 @@ import {
   PatchIssueDto,
   PlanDto,
   PickPlanDto,
+  QuickStartDto,
+  RejectDto,
 } from './novel.dto';
 
 @Controller('novel')
@@ -43,6 +46,19 @@ export class NovelController {
   @Post('recommend-topic')
   recommendTopic(@Body() dto: RecommendTopicDto) {
     return this.svc.recommendTopic(dto.platform);
+  }
+
+  /**
+   * 【一键开书】默认番茄平台；书名/卖点/男频女频/题材/大纲/时间线/简介/主角/
+   * 签约模式/阅读标签/内容标签/封面全部 AI 生成。返回作品 id，用 /novel/:id/jobs 轮询进度。
+   */
+  @Post('quick-start')
+  quickStart(
+    @Body() dto: QuickStartDto,
+    @Headers('authorization') auth?: string,
+    @Headers('x-guest-key') guest?: string,
+  ) {
+    return this.svc.quickStart(dto, uidFromHeader(auth), guestFromHeader(guest));
   }
 
   /**
@@ -109,6 +125,34 @@ export class NovelController {
     return this.svc.getCoverPlan(id);
   }
 
+  /**
+   * 【真图封面】生图模型出「无字底图」→ 服务端精确叠书名/笔名/题材标签 → 落盘。
+   * 返回 url 可直接喂给 <image>；换一换传 seed/opinion，只改字传 reuseBase。
+   */
+  @Post(':id/cover-image')
+  coverImage(@Param('id') id: string, @Body() dto: CoverImageDto) {
+    return this.svc.coverImageGen(id, dto);
+  }
+
+  /** 读已生成的封面（页面进来时按需拉，列表接口不带它，避免响应体积暴涨） */
+  @Get(':id/cover-image')
+  getCoverImage(@Param('id') id: string) {
+    return this.svc.getCoverImage(id);
+  }
+
+  /** 封面图本体。不加鉴权：要给 <image> 和「保存到相册」直接用（id 是 cuid，猜不到） */
+  @Get(':id/cover.jpg')
+  async coverJpg(@Param('id') id: string, @Res() res: Response) {
+    const abs = await this.svc.coverAbsPath(id);
+    if (!abs) {
+      res.status(404).json({ error: '这部作品还没有真图封面' });
+      return;
+    }
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'no-cache'); // 换封面后要立刻看到新图
+    res.sendFile(abs);
+  }
+
   @Post()
   create(
     @Body() dto: CreateNovelDto,
@@ -172,6 +216,33 @@ export class NovelController {
   @Get(':id/progress')
   progress(@Param('id') id: string) {
     return this.svc.getProgress(id);
+  }
+
+  /**
+   * 【被平台拒了】登记驳回原因（原文留存 + AI 总结，作为后续改进的原始数据），
+   * 该作品转「被拒」，立刻腾出这个平台的在写名额，然后可点 /restart 自动重开一本。
+   */
+  @Post(':id/reject')
+  reject(@Param('id') id: string, @Body() dto: RejectDto) {
+    return this.svc.rejectNovel(id, dto);
+  }
+
+  /** 【过审了】同样留一条正向样本（以后对比"过与不过"的差别，全靠这一正一反两批数据） */
+  @Post(':id/pass')
+  pass(@Param('id') id: string, @Body() dto: RejectDto) {
+    return this.svc.passNovel(id, dto);
+  }
+
+  /** 【被拒后自动重开一本】旧作标被拒 → 同平台新建一部 → 带上"上一部为什么被拒"让 AI 换方向 */
+  @Post(':id/restart')
+  restart(@Param('id') id: string, @Body() dto: RejectDto) {
+    return this.svc.restartAfterReject(id, dto);
+  }
+
+  /** 这部作品历次平台反馈（被拒 / 过审）与当时的作品快照 */
+  @Get(':id/feedbacks')
+  feedbacks(@Param('id') id: string) {
+    return this.svc.listFeedback(id);
   }
 
   /**

@@ -130,7 +130,7 @@ Page({
       genre: d.genre || d.genres.join('·'),
       genreText: d.genreText || d.genres.join('、'),
       reader: d.reader || '',
-      contract: d.contract || 'signing',
+      contract: d.contract || 'unsigned',
       chapterWords: d.chapterWords || 2000,
       novelId: d.novelId || '',
       outline: d.outline || null,
@@ -184,7 +184,7 @@ Page({
         genreText: genres.join('、'),
         genre: n.genre || '',
         reader: n.targetReader || '',
-        contract: n.contractStatus || 'signing',
+        contract: n.contractStatus || 'unsigned',
         chapterWords: n.chapterWords || 2000,
         step: 4,
         outline: { title: n.title, sellPoint: n.sellPoint || '', outline: n.outline || '' },
@@ -369,7 +369,7 @@ Page({
         genre: n.genre || '',
         genreText: String(n.genre || '').replace(/·/g, '、'),
         reader: n.targetReader || '',
-        contract: n.contractStatus || 'signing',
+        contract: n.contractStatus || 'unsigned',
         step: 4,
       });
       this.applyOutline({ title: n.title, sellPoint: n.sellPoint || '', outline: n.outline || '', staleCount: 0 });
@@ -442,7 +442,7 @@ Page({
         platform: this.data.platform,
         genre: this.data.genre,
         targetReader: this.data.reader,
-        contractStatus: this.data.contract || 'signing',
+        contractStatus: this.data.contract || 'unsigned',
         chapterWords: this.data.chapterWords,
         penName: pen || undefined,
       };

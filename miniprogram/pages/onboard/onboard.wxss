@@ -1,0 +1,7 @@
+.tick { font-size: 24rpx; color: #bbb; }
+.tick.on { color: #07c160; font-weight: 600; }
+.state {
+  display: inline-block; margin-top: 14rpx;
+  font-size: 28rpx; font-weight: 600; color: #07c160;
+  background: #eaf9ef; padding: 10rpx 24rpx; border-radius: 28rpx;
+}

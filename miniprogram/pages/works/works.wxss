@@ -16,6 +16,9 @@
 }
 .acct-r { display: flex; align-items: center; }
 .acct-quota { font-size: 26rpx; color: #999; margin-right: 16rpx; }
+/* 被拒作品卡片：保留驳回原因，作为下次开书的避坑依据 */
+.rej { background: #fffaf9; border: 2rpx solid #ffe0dc; }
+.rej .muted { line-height: 1.7; }
 .acct-btn {
   font-size: 26rpx; color: #fff; background: #07c160;
   padding: 8rpx 24rpx; border-radius: 24rpx;

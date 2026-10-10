@@ -10,30 +10,85 @@
     <text class="acct-plan" wx:if="{{acct}}">{{acct.planName}}</text>
   </view>
   <view class="acct-r">
-    <text class="acct-quota" wx:if="{{acct}}">{{acct.novels}}/{{acct.maxNovels}} 本</text>
+    <text class="acct-quota" wx:if="{{acct}}">今日 {{acct.words}}/{{acct.dailyWords}} 字 · {{acct.chapters}}/{{acct.dailyChapters}} 章</text>
     <view wx:if="{{acct && !acct.loggedIn}}" class="acct-btn" bindtap="onLogin">登录</view>
   </view>
 </view>
 
 <ai-note text="本小程序的全部作品、大纲、简介、封面与正文均由人工智能（AI）生成，仅供参考，作者可自行编辑修改。" />
 
+<!-- 在写：每个平台最多 1 部 -->
 <view class="card">
-  <view class="row"><view class="card-h">📚 我的作品（{{platform==='qimao'?'七猫':'番茄'}}）</view><view class="muted">{{novels.length}} 本</view></view>
+  <view class="row">
+    <view class="card-h">📚 在写（{{platform==='qimao'?'七猫':'番茄'}}）</view>
+    <view class="muted">{{(acct && acct.active && acct.active[platform]) || 0}}/{{acct ? acct.activePerPlatform : 1}} 部</view>
+  </view>
   <block wx:for="{{novels}}" wx:key="id">
     <view class="card" style="margin-top:16rpx" bindtap="goIntro" data-nov="{{item}}">
-      <view class="row"><text style="font-weight:600">{{item.title}}</text><view class="copy" catchtap="exportWord" data-nov="{{item}}">📄 Word 导出</view></view>
-      <view class="muted">{{item.targetReader}} · {{item.contractStatus==='signed'?'已签约':'签约中'}} · 已写 {{item._count.chapters}} 章 · {{item.bibleStatus==='done'?'已生成大纲':'⚠ 待生成大纲'}}</view>
+      <view class="row"><text style="font-weight:600">{{item.title}}</text><view class="copy" catchtap="exportWord" data-nov="{{item}}">📄 Word</view></view>
+      <view class="muted">{{item.targetReader}} · {{item.contractStatus==='signed'?'已签约':'未签约'}} · 已写 {{item._count.chapters}} 章 · {{item.bibleStatus==='done'?'已生成大纲':'⚠ 待生成大纲'}}</view>
       <view class="row" style="margin-top:12rpx;justify-content:flex-end">
         <view class="del" catchtap="delNovel" data-id="{{item.id}}" data-title="{{item.title}}">🗑 删除</view>
       </view>
     </view>
   </block>
-  <view wx:if="{{novels.length===0}}" class="muted" style="text-align:center;padding:20rpx">还没有作品，点下面新建</view>
+  <view wx:if="{{novels.length===0}}" class="muted" style="text-align:center;padding:20rpx">这个平台还没有在写的作品，点下面新建</view>
+  <view class="btn" wx:if="{{novels.length===0}}" bindtap="goWizard">＋ 新建小说</view>
+  <view wx:else class="muted" style="margin-top:12rpx">同平台最多 1 部在写。这部被平台拒了就去作品页点「被拒」，登记后系统会自动重开一本。</view>
 </view>
 
-<view class="btn" bindtap="goWizard">＋ 新建小说</view>
+<!-- 被拒的：不占名额，但必须留着 —— 驳回原因是下次开书最值钱的避坑依据 -->
+<view class="card" wx:if="{{rejected.length}}">
+  <view class="card-h">❌ 被拒的作品（{{rejected.length}}）</view>
+  <view class="muted">这些保留了平台的驳回原因，不占「在写」名额。我们把它当成真实样本存下来，重开新书时 AI 会避开这些坑。</view>
+  <block wx:for="{{rejected}}" wx:key="id">
+    <view class="card rej" style="margin-top:16rpx">
+      <view class="row"><text style="font-weight:600">{{item.title}}</text><text class="muted">已写 {{item._count.chapters}} 章</text></view>
+      <view class="muted" wx:if="{{item.rejectReason}}">驳回原因：{{item.rejectReason}}</view>
+      <view class="row" style="margin-top:14rpx;justify-content:flex-end">
+        <view class="copy" data-text="{{item.rejectReason}}" catchtap="copy">复制原因</view>
+        <view class="copy" style="margin-left:12rpx" data-id="{{item.id}}" data-title="{{item.title}}" catchtap="restart">🔁 自动重开一本</view>
+        <view class="del" style="margin-left:12rpx" catchtap="delNovel" data-id="{{item.id}}" data-title="{{item.title}}">🗑 删除</view>
+      </view>
+    </view>
+  </block>
+</view>
+
+<!-- 已归档：老作品升级过来的，一律保留（能看、能导出、能转回在写） -->
+<view class="card" wx:if="{{archived.length}}">
+  <view class="card-h">📦 已归档（{{archived.length}}）</view>
+  <view class="muted">这些是升级前建的作品，不占「在写」名额，但一本都没删 —— 想接着写就点「转为在写」。</view>
+  <block wx:for="{{archived}}" wx:key="id">
+    <view class="card" style="margin-top:16rpx">
+      <view class="row"><text style="font-weight:600">{{item.title}}</text><text class="muted">已写 {{item._count.chapters}} 章</text></view>
+      <view class="row" style="margin-top:14rpx;justify-content:flex-end">
+        <view class="copy" data-nov="{{item}}" catchtap="exportWord">📄 Word</view>
+        <view class="copy" style="margin-left:12rpx" data-id="{{item.id}}" data-title="{{item.title}}" catchtap="backToWriting">▸ 转为在写</view>
+        <view class="del" style="margin-left:12rpx" catchtap="delNovel" data-id="{{item.id}}" data-title="{{item.title}}">🗑 删除</view>
+      </view>
+    </view>
+  </block>
+</view>
+
+<!-- 重开一本的进度 -->
+<view wx:if="{{busy}}" class="pcard">
+  <view class="pcard-h">
+    <text class="pcard-t">🔁 被拒重开一本</text>
+    <text class="pcard-n">{{prog.done}}/{{prog.total}}</text>
+  </view>
+  <view class="pbar"><view class="pbar-in {{platform==='qimao'?'blue':''}}" style="width:{{prog.pct}}%"></view></view>
+  <view class="pcard-cur">{{prog.current || '准备中…'}}</view>
+  <block wx:for="{{prog.steps}}" wx:key="key">
+    <view class="pcard-step {{item.status}}">
+      <text class="ico">{{item.status==='done'?'✓':(item.status==='running'?'⏳':(item.status==='failed'?'✗':'·'))}}</text>
+      <text>{{item.label}}<text wx:if="{{item.note}}"> · {{item.note}}</text></text>
+    </view>
+  </block>
+</view>
+
 <view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="editPen">
   ✍️ 我的笔名：{{pen || '未设置（点此确认）'}}
 </view>
-<view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="goGuide">首次引导 / 笔名推荐</view>
+<view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="goOnboard">🧭 重看开书向导（注册 / 实名 / 开书）</view>
+<view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="goGuide">笔名推荐 / 作者简介</view>
 <view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="goMe">👤 我的（等级 / 会员 / 隐私 / 注销）</view>

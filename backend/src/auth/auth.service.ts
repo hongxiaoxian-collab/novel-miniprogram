@@ -102,14 +102,19 @@ export class AuthService {
         limits: GUEST_PLAN.limits,
         usage,
         novelCount,
+        active: await this.activeByPlatform(null, guestKey),
+        // 游客没有账号可存，向导进度由前端落本地；这里固定返回"未走过"，前端据此决定是否弹向导
+        onboard: { onboarded: false, steps: {}, penName: '' },
         // 游客看到这些提醒，才知道登录能解锁什么（界面上直接展示，不用作者猜）
-        upsell: `登录后免费升到「普通版」：3 部作品 / 每天 5 章 / 每章可调到 3000 字。`,
+        upsell: `登录后免费升到「普通版」：每天 4 章 / 1 万字，番茄·七猫各 1 部在写`,
       };
     }
     const user = await this.prisma.user.findUnique({ where: { id: uid } });
     if (!user) return this.guestFallback(guestKey);
 
     const usage = await this.usageToday(uid, null);
+    let steps: Record<string, boolean> = {};
+    try { steps = (user as any).onboardJson ? JSON.parse((user as any).onboardJson) : {}; } catch (e) { steps = {}; }
     return {
       loggedIn: true,
       guest: false,
@@ -118,6 +123,63 @@ export class AuthService {
       limits: limitsFor(user),
       usage,
       novelCount: await this.prisma.novel.count({ where: { userId: uid } }),
+      active: await this.activeByPlatform(uid),
+      // 首次进入要不要走向导，全看这个字段（前端不再靠本地缓存猜，换手机也能接着走）
+      onboard: {
+        onboarded: !!(user as any).onboarded,
+        steps,
+        penName: (user as any).penName || '',
+      },
+    };
+  }
+
+  /**
+   * 【首次进入的开书向导】下载 App → 注册 → 实名 → 确认笔名 → 默认未签约 → 一键开书。
+   *
+   * 为什么后端也要存一份：只存本地，作者换手机 / 清缓存后又要重走一遍；
+   * 存在账号上才能做到"换设备也只走一次"。游客（未登录）也能调，此时只回执，
+   * 由前端落本地，登录后第一次调 me 再把进度并上来。
+   */
+  async onboard(uid: string | null, dto: {
+    steps?: Record<string, boolean>;
+    penName?: string;
+    authorIntro?: string;
+    done?: boolean;
+  } = {}) {
+    const steps = dto.steps || {};
+    if (!uid) {
+      return { ok: true, guest: true, steps, onboarded: !!dto.done, synced: false, penName: dto.penName || '' };
+    }
+    const user: any = await this.prisma.user.findUnique({ where: { id: uid } });
+    if (!user) {
+      return { ok: true, guest: true, steps, onboarded: !!dto.done, synced: false, penName: dto.penName || '' };
+    }
+    let prev: Record<string, boolean> = {};
+    try { prev = user.onboardJson ? JSON.parse(user.onboardJson) : {}; } catch (e) { prev = {}; }
+    const merged = { ...prev, ...steps };
+    const data: any = { onboardJson: JSON.stringify(merged) };
+    if (dto.penName) data.penName = String(dto.penName).trim();
+    if (dto.authorIntro) data.authorIntro = String(dto.authorIntro).trim();
+    if (dto.done) data.onboarded = true;
+    await this.prisma.user.update({ where: { id: uid }, data });
+
+    // 笔名只确认一次，之后名下所有作品（含之前建的老作品）都自动带上，封面才不会被平台驳回
+    let patched = 0;
+    if (dto.penName) {
+      const r = await this.prisma.novel.updateMany({
+        where: { userId: uid } as any,
+        data: { penName: String(dto.penName).trim() } as any,
+      });
+      patched = r.count;
+    }
+    return {
+      ok: true,
+      guest: false,
+      steps: merged,
+      onboarded: !!user.onboarded || !!dto.done,
+      penName: data.penName || user.penName || '',
+      patched, // 顺手把笔名补到已有作品上，前端可提示"已同步到 N 本作品"
+      synced: true,
     };
   }
 
@@ -159,6 +221,21 @@ export class AuthService {
       vipExpireAt: u.vipExpireAt,
       createdAt: u.createdAt,
     };
+  }
+
+  /**
+   * 各平台「在写」数量：{fanqie:1, qimao:0}。
+   * 每平台最多 1 部在写是新架构的硬约束，列表页要直接把这个数显示给作者看，
+   * 否则他点「新建」被拒时只会觉得莫名其妙。
+   */
+  private async activeByPlatform(uid: string | null, guestKey?: string | null) {
+    const where: any = uid
+      ? { userId: uid, status: 'writing' }
+      : { guestKey: guestKey || '__none__', userId: null, status: 'writing' };
+    const rows = await this.prisma.novel.findMany({ where, select: { platform: true } });
+    const m: Record<string, number> = {};
+    rows.forEach((r: any) => { m[r.platform] = (m[r.platform] || 0) + 1; });
+    return m;
   }
 
   /** 今日已用额度：按今天新建的章节统计。不额外建表，避免为了计数多一次写库 */

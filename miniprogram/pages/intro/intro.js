@@ -1,7 +1,7 @@
 const app = getApp();
 const { request } = require('../../utils/request');
 const { copy } = require('../../utils/clipboard');
-const { runFinalize, runningText } = require('../../utils/task');
+const { runFinalize, runningText, waitJob, progOf } = require('../../utils/task');
 const { getPen, setPen, getIntro, setIntro } = require('../../utils/pen');
 const coverLib = require('../../utils/cover');
 
@@ -111,6 +111,9 @@ Page({
     coverPlan: null,      // 按情节生成的封面方案（场景/配色/构图/人物/道具）
     coverLayout: '',      // 版式：center / band / side
     coverBusy: false,     // 正在按情节生成封面
+    coverImg: '',         // 后端出的「真图」封面 URL（有它就不画 canvas）
+    coverPrompt: '',      // 这张真图用的画面脚本（可复现）
+    coverTip: '',         // 出图时的进度提示
     penEdit: '',          // 作者笔名（封面必需）
     penList: [],          // AI 推荐的笔名候选（≥3 个，可换一批）
     penBusy: false,
@@ -119,6 +122,18 @@ Page({
     // 默认给全字段，避免后端未就绪时模板取到 undefined
     info: { intro: '', protagonists: [], contractMode: '', serialMode: '', readingTags: null, contentTags: null },
     readingList: [], contentList: [],
+    // 「更多操作」默认收起：作者点进来只看到续更 + 被拒 / 过审
+    moreOpen: false,
+    // 被拒原因浮层
+    rejectShow: false,
+    rejectText: '',
+    quickReasons: [
+      '故事矛盾有些欠缺', '看点有些不足', '开篇的切入点缺乏足够的吸引力',
+      '人设不够鲜明', '节奏偏慢', '情节套路化', '文字质量不达标', '题材与平台不符',
+    ],
+    feedbacks: [],   // 历次平台反馈（原始数据，只增不删）
+    busyRestart: false,
+    prog: { show: false, pct: 0, done: 0, total: 0, current: '', steps: [], stage: '' },
   },
   onLoad(q) {
     this.setData({ id: q.id || app.globalData.novelId });
@@ -127,21 +142,141 @@ Page({
   async onShow() {
     const nov = await request(`/novel/${this.data.id}`);
     const saved = this.readCoverSaved(nov.coverImage);
+    // 真图封面：后端已落盘就按 URL 取。带时间戳 —— 换过封面要立刻看到新图，不能被缓存掉
+    const hasReal = !!nov.coverFile;
     this.setData({
       nov,
       platform: nov.platform,
       coverSeed: saved.seed,
-      coverPlan: saved.plan,          // 已存的「按情节生成」的封面方案
+      coverPlan: saved.plan,          // 已存的「按情节生成」的封面方案（canvas 兜底用）
       coverLayout: saved.layout,      // 版式（可与方案分开换）
+      coverImg: hasReal
+        ? `${app.globalData.baseUrl}/novel/${nov.id}/cover.jpg?v=${Date.now()}`
+        : '',
+      coverPrompt: nov.coverPrompt || '',
       hasBible: this.novelHasBible(nov),
       penEdit: nov.penName || getPen() || '', // 全局笔名兜底：定一次就自动带上封面
       introEdit: nov.authorIntro || getIntro() || '', // 全局作者简介兜底
       penList: [],
     });
     setTimeout(() => this.drawCover(), 200); // 先画封面，不等上架资料接口
-    this.ensureCoverPlan(); // 没方案且有情节 → 后台按情节生成一版（画完再换，不卡首屏）
+    // 已经有真图就不用再让 AI 出方案了（省一次调用）；没有才退回 canvas 那套
+    if (!hasReal) this.ensureCoverPlan();
     this.loadAuditBadge(); // 上次体检遗留问题的角标（不 await，不卡首屏）
+    this.loadFeedbacks();  // 历次被拒 / 过审记录（不 await）
     await this.loadInfo();
+  },
+
+  // ---------- 平台反馈：被拒 / 过审 ----------
+  toggleMore() { this.setData({ moreOpen: !this.data.moreOpen }); },
+
+  async loadFeedbacks() {
+    try {
+      const list = await request(`/novel/${this.data.id}/feedbacks`);
+      const arr = (list || []).map((f) => {
+        const d = new Date(f.createdAt);
+        const p = (x) => String(x).padStart(2, '0');
+        return Object.assign({}, f, {
+          createdAtText: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`,
+        });
+      });
+      this.setData({ feedbacks: arr });
+    } catch (e) { /* 拿不到就不显示 */ }
+  },
+
+  openReject() {
+    this.setData({ rejectShow: true, rejectText: (this.data.nov && this.data.nov.rejectReason) || '' });
+  },
+  closeReject() { this.setData({ rejectShow: false }); },
+  noop() { /* 阻止冒泡：点浮层内部不要关掉 */ },
+  onRejectText(e) { this.setData({ rejectText: e.detail.value }); },
+  pickReason(e) {
+    const t = e.currentTarget.dataset.t || '';
+    const cur = (this.data.rejectText || '').trim();
+    this.setData({ rejectText: cur ? `${cur}；${t}` : t });
+  },
+  pasteReason() {
+    wx.getClipboardData({
+      success: (r) => {
+        const t = (r.data || '').trim();
+        if (!t) { wx.showToast({ title: '剪贴板是空的', icon: 'none' }); return; }
+        const cur = (this.data.rejectText || '').trim();
+        this.setData({ rejectText: cur ? `${cur}\n${t}` : t });
+      },
+      fail: () => wx.showToast({ title: '读取剪贴板失败', icon: 'none' }),
+    });
+  },
+  copyReason() { copy(this.data.rejectText || '', '已复制'); },
+
+  /** 提交被拒原因：后端留档（原文 + 作品快照 + AI 总结），并腾出该平台的在写名额 */
+  async submitReject() {
+    const reason = (this.data.rejectText || '').trim();
+    if (!reason) { wx.showToast({ title: '填一下驳回原因再提交', icon: 'none' }); return; }
+    wx.showLoading({ title: '正在留档…', mask: true });
+    try {
+      await request(`/novel/${this.data.id}/reject`, 'POST', { reason });
+      const nov = await request(`/novel/${this.data.id}`);
+      this.setData({ rejectShow: false, nov });
+      this.loadFeedbacks();
+      wx.hideLoading();
+      wx.showModal({
+        title: '已记录',
+        content: '驳回原因已连同这部作品的快照存成原始数据（以后开新书时 AI 会避开这个坑）。\n\n现在要自动重开一本吗？',
+        confirmText: '重开一本',
+        cancelText: '先不改',
+        success: (r) => { if (r.confirm) this.restartNow(); },
+      });
+    } catch (e) {
+      wx.hideLoading();
+      wx.showToast({ title: '提交失败，请重试', icon: 'none' });
+    }
+  },
+
+  /** 过审：也留一条正向样本，以后拿"过与不过"这两批数据对表改规则 */
+  async onPass() {
+    const res = await new Promise((resolve) => {
+      wx.showModal({
+        title: '标记为过审 / 已签约',
+        content: '平台通过了吗？我们会把这条记成一条成功样本（可填一句说明，也可以留空）。',
+        editable: true,
+        placeholderText: '例如：2 万字签约通过（可留空）',
+        confirmText: '记录',
+        success: (r) => resolve(r.confirm ? (r.content || '') : null),
+        fail: () => resolve(null),
+      });
+    });
+    if (res === null) return;
+    wx.showLoading({ title: '记录中…', mask: true });
+    try {
+      await request(`/novel/${this.data.id}/pass`, 'POST', { reason: res });
+      const nov = await request(`/novel/${this.data.id}`);
+      this.setData({ nov });
+      this.loadFeedbacks();
+      wx.hideLoading();
+      wx.showToast({ title: '已记为成功样本', icon: 'success' });
+    } catch (e) {
+      wx.hideLoading();
+      wx.showToast({ title: '记录失败，请重试', icon: 'none' });
+    }
+  },
+
+  /** 被拒后自动重开一本：新书带着"上一部为什么被拒"的约束重新定方向 */
+  async restartNow() {
+    if (this.data.busyRestart) return;
+    this.setData({ busyRestart: true, prog: progOf('被拒重开一本', { steps: [], stage: 'running' }) });
+    wx.showLoading({ title: '正在开新书…', mask: true });
+    try {
+      const r = await request(`/novel/${this.data.id}/restart`, 'POST', {});
+      app.globalData.novelId = r.id;
+      wx.hideLoading();
+      await waitJob(r.id, (p) => this.setData({ prog: progOf('被拒重开一本', p) }), 20 * 60 * 1000);
+      wx.showToast({ title: '新书已开好', icon: 'success' });
+      wx.redirectTo({ url: `/pages/intro/intro?id=${r.id}` });
+    } catch (e) {
+      wx.hideLoading();
+      wx.showToast({ title: ((e && e.message) || '开新书失败').slice(0, 30), icon: 'none', duration: 3000 });
+    }
+    this.setData({ busyRestart: false });
   },
   /** 未解决矛盾数：退出小程序也不丢，回来就挂在「一键体检」入口上提醒 */
   async loadAuditBadge() {
@@ -242,6 +377,8 @@ Page({
       this.drawCover(); // 后端没存上，本机封面照常显示新笔名
       wx.showToast({ title: '已设为默认笔名', icon: 'none' });
     }
+    // 封面必须含书名 + 笔名（平台硬性要求）：已经出了真图的话，顺手把新笔名叠上去
+    if (this.data.coverImg) setTimeout(() => this.retypeCover(), 800);
   },
 
   // ---------- 作者简介（可 AI 生成、可反复重写、可自己写） ----------
@@ -347,6 +484,64 @@ Page({
       '【内容标签】', ...contentList.map((t) => `${t.label}：${t.value}`),
     ].join('\n');
     copy(text, '全部资料已复制');
+  },
+
+  // ---------- 封面（真图）：AI 出无字底图 + 服务端精确叠字 ----------
+  /**
+   * 出一条真图封面。
+   *
+   * 为什么必须由服务端叠字：AI 直接画中文书名 99% 是乱码/鬼画符（封面工坊技能里踩过的坑），
+   * 而封面上的书名必须与后台作品名一字不差（平台会按"封面与内容不符"驳回）。
+   * 所以流水线是：AI 只出「无字底图」→ 后端用字库把书名/笔名/题材标签精确压上去。
+   */
+  async genRealCover(payload, tip) {
+    if (this.data.coverBusy) return null;
+    this.setData({ coverBusy: true, coverTip: tip || '' });
+    wx.showLoading({ title: tip || 'AI 正在出图…', mask: true });
+    try {
+      const r = await request(`/novel/${this.data.id}/cover-image`, 'POST', payload || {});
+      wx.hideLoading();
+      this.setData({
+        coverBusy: false,
+        coverTip: '',
+        coverImg: `${app.globalData.baseUrl}${r.url}`,
+        coverPrompt: r.prompt || '',
+        'nov.coverFile': r.file,
+        'nov.coverPrompt': r.prompt,
+      });
+      wx.showToast({ title: `真图封面已生成（${r.size}）`, icon: 'success' });
+      return r;
+    } catch (e) {
+      wx.hideLoading();
+      this.setData({ coverBusy: false, coverTip: '' });
+      // 生图通道没通时至少回到方案图，别让作者对着空白框
+      if (!this.data.coverImg && this.data.hasBible && !this.data.coverPlan) this.replanCover(true);
+      wx.showModal({
+        title: '出图失败',
+        content: (e && e.message)
+          || '生图通道没通：请到云开发控制台确认「生图模型」已开启，并重新部署云函数 ai-write。',
+        showCancel: false,
+      });
+      return null;
+    }
+  },
+  /** 「🎨 换一张画面」：换 seed 重新生图（消耗一次生图额度） */
+  newCoverShot() {
+    return this.genRealCover({ seed: Math.floor(Math.random() * 999999) }, 'AI 重画一张…');
+  },
+  /** 「🔤 只改字重出」：复用上次的底图，只重叠书名/笔名 —— 改笔名、改书名后立刻生效，不烧生图额度 */
+  retypeCover() {
+    return this.genRealCover(
+      { reuseBase: true, title: (this.data.nov && this.data.nov.title) || '', author: this.data.penEdit || '' },
+      '只改字，复用底图…',
+    );
+  },
+  onCoverImgOk() { /* 加载成功：无需处理 */ },
+  /** 真图加载不了（域名没通 / 文件被删）→ 退回 canvas 方案图，别给作者一个空白框 */
+  onCoverImgErr() {
+    this.setData({ coverImg: '' });
+    setTimeout(() => this.drawCover(), 200);
+    wx.showToast({ title: '真图加载失败，已退回方案图', icon: 'none', duration: 2500 });
   },
 
   // ---------- 封面：canvas 绘制 + 存相册 ----------
@@ -900,10 +1095,28 @@ Page({
       this.setData({ 'nov.coverImage': JSON.stringify({ v: 1, seed }) });
     } catch (e) { /* 存不上不影响本机预览 */ }
   },
-  /** 「🔄 按情节重新设计」：让 AI 重新读情节出一套新方案（可反复换，直到满意） */
-  redesignCover() { return this.replanCover(false); },
-  /** 保存到相册：另开离屏画布按平台规格（600×800）重绘，导出的是可直接上传的清晰度 */
+  /** 「✨ 出真图封面」：AI 读这部作品的情节 → 无字底图 → 精确叠字（已经有图再点就是重出一张） */
+  redesignCover() {
+    return this.genRealCover({ seed: Math.floor(Math.random() * 999999) }, 'AI 按情节出图…');
+  },
+  /** 保存到相册：真图直接下回来存；没有真图才走 canvas 离屏重绘 */
   saveCover() {
+    if (this.data.coverImg) {
+      wx.showLoading({ title: '下载封面…', mask: true });
+      wx.downloadFile({
+        url: this.data.coverImg,
+        success: (r) => {
+          wx.hideLoading();
+          if (r.statusCode === 200) this.saveToAlbum(r.tempFilePath);
+          else wx.showToast({ title: `下载失败 ${r.statusCode}`, icon: 'none' });
+        },
+        fail: () => {
+          wx.hideLoading();
+          wx.showToast({ title: '下载失败，检查网络', icon: 'none' });
+        },
+      });
+      return;
+    }
     const [TW, TH] = COVER_SIZE[this.data.platform] || [600, 800];
     let off = null;
     try {
@@ -967,11 +1180,12 @@ Page({
       });
       return;
     }
-    // 先问续更几章：作者不想一章一章点，选 5 章就一次写完
+    // 先问续更几章：作者不想一章一章点。上限 4 章 —— 每天最多写 1 万字（约 4 章），
+    // 给超过上限的选项只会让作者点完才被"今天额度用完了"打回。
     wx.showActionSheet({
-      itemList: ['续更 1 章', '一次续更 3 章', '一次续更 5 章', '一次续更 10 章'],
+      itemList: ['续更 1 章', '一次续更 2 章', '一次续更 3 章', '一次续更 4 章（今天的上限）'],
       success: (r) => {
-        const c = [1, 3, 5, 10][r.tapIndex] || 1;
+        const c = [1, 2, 3, 4][r.tapIndex] || 1;
         // auto=next：进来就直接开写，不用再点一次；count 带过去决定连写几章
         wx.navigateTo({ url: `/pages/chapter/chapter?id=${this.data.id}&auto=next&count=${c}` });
       },

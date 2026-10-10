@@ -1,6 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
-import { currentQuota, checkNovelLimit, checkChapterLimit } from '../auth/quota';
+import {
+  currentQuota, checkNovelLimit, checkChapterLimit, checkWordLimit, checkPlatformSlot,
+  checkNewNovelPerDay,
+} from '../auth/quota';
 import { AiService } from '../ai/ai.service';
 import { tryParseJson, looseStringField } from '../common/json.util';
 import {
@@ -13,6 +18,9 @@ import { RANK_BOARD, renderRankBoard } from './rank-board';
 import { analyzeBook, chapterFindings, rankFindings, PassReport } from './pass-review';
 import { checkTitle, rankTitles } from './title-check';
 import { buildDocx, safeFileName, DocxSection } from '../common/docx';
+import {
+  composeCover, scenePromptOf, wrapCoverPrompt, coverSubtitle, cleanScene, fallbackScene, CoverMeta,
+} from './cover-image';
 import { PLATFORMS, getPlatform, tagWhitelist } from '../platform/platform.config';
 import {
   CreateNovelDto,
@@ -24,6 +32,9 @@ import {
   UpdateNovelDto,
   AuthorAssistDto,
   CoverPlanDto,
+  CoverImageDto,
+  QuickStartDto,
+  RejectDto,
 } from './novel.dto';
 
 /** 热榜研读强制要求：bot 每次写稿/推荐前研读番茄/七猫热榜小说，学钩子/语感/架构（与 coze-bot-design.md 对齐） */
@@ -512,7 +523,7 @@ export class NovelService {
   async createNovel(dto: CreateNovelDto, uid?: string | null, guestKey?: string | null) {
     // 配额闸门：只拦"新建"，已有作品永远可编辑 —— 绝不能因为配额把作者锁死在门外
     const q = await currentQuota(this.prisma as any, uid || null, guestKey);
-    const deny = checkNovelLimit(q);
+    const deny = checkNovelLimit(q) || checkPlatformSlot(q, dto.platform);
     if (deny) throw new BadRequestException(deny);
 
     return this.prisma.novel.create({
@@ -521,6 +532,9 @@ export class NovelService {
         userId: uid || null,
         guestKey: uid ? null : (guestKey || null),
         title: cleanTitle(dto.title),
+        // 【新架构】新建即"在写 / 未签约"：签约状态一律由作者在作品页更新，默认绝不自称已签约
+        status: 'writing',
+        contractStatus: dto.contractStatus || 'unsigned',
         // 游客不给调每章字数：固定 2000。传了也强制改回，避免绕过
         chapterWords: q.limits.chapterWordsEditable
           ? (dto.chapterWords ?? 2000)
@@ -530,12 +544,349 @@ export class NovelService {
     });
   }
 
+  // ==================== 一键开书 / 被拒重开（新架构的两个主入口）====================
+
+  /**
+   * 【一键开书】作者只定平台（默认番茄）和笔名，其余全部 AI 包办：
+   * 书名 → 一句话卖点 → 男频/女频 → 题材 → 大纲 → 全书脉络 + 分卷时间线
+   * → 作品简介 / 主角 / 签约模式 / 阅读标签 / 内容标签 → 封面。
+   *
+   * 为什么"先建壳、再后台生成"：这一串要连跑 4 次大模型（几分钟），
+   * 挂在单次请求上作者一退出就断；沿用现有「落库任务 + 前端轮询」最稳。
+   */
+  async quickStart(dto: QuickStartDto, uid?: string | null, guestKey?: string | null) {
+    const platform = dto.platform || 'fanqie';
+    getPlatform(platform); // 平台非法当场抛错，别等生成到一半才炸
+
+    const q = await currentQuota(this.prisma as any, uid || null, guestKey);
+    const deny = checkNovelLimit(q) || checkPlatformSlot(q, platform);
+    if (deny) throw new BadRequestException(deny);
+    // 开书成本高（一次性出大纲/脉络/时间线/黄金三章），每天限额；被拒重开不受限
+    if (!dto.parentId) {
+      const denyDay = await checkNewNovelPerDay(this.prisma as any, uid || null, guestKey || null, q.limits.dailyNewNovels);
+      if (denyDay) throw new BadRequestException(denyDay);
+    }
+
+    // 笔名优先用本次传的，其次用账号里在向导第④步确认过的（只确认一次，之后所有作品自动带上）
+    const user: any = uid ? await this.prisma.user.findUnique({ where: { id: uid } }) : null;
+    const penName = dto.penName || (user && user.penName) || '';
+    const authorIntro = dto.authorIntro || (user && user.authorIntro) || '';
+
+    const novel = await this.prisma.novel.create({
+      data: {
+        platform,
+        title: '（AI 生成中…）',
+        penName: penName || null,
+        authorIntro: authorIntro || null,
+        userId: uid || null,
+        guestKey: uid ? null : (guestKey || null),
+        status: 'writing',
+        contractStatus: 'unsigned', // 新书一律「未签约」，签约状态只由作者在作品页改
+        contractMode: '未签约',
+        // 每天 1 万字 ÷ 4 章 = 2500 字/章，正好卡在平台日更节奏上
+        chapterWords: q.limits.chapterWordsEditable
+          ? Math.min(dto.chapterWords || 2500, q.limits.wordPerChapter)
+          : q.limits.wordPerChapter,
+        parentId: dto.parentId || null,
+        autoCreated: !!dto.parentId, // 由"被拒重开"生成的不算作者手建
+      } as any,
+    });
+    await this.startQuickJob(novel.id, dto);
+    return { id: novel.id, job: await this.getJob(novel.id) };
+  }
+
+  /** 一键开书的任务链：定位 → 大纲 → 脉络+时间线 → 上架资料 → 封面 */
+  private async startQuickJob(id: string, dto: QuickStartDto) {
+    return this.startJob(id, 'quick', [
+      {
+        key: 'plan',
+        label: 'AI 定位：书名 / 卖点 / 男频女频 / 题材',
+        run: async () => {
+          const n: any = await this.getNovel(id);
+          const p = getPlatform(n.platform);
+          const text = await this.ai.chat(this.quickPlanPrompt(n, p, dto.avoid, dto.opinion), 120000);
+          const parsed = tryParseJson(text, ['title'])
+            || tryParseJson(text, ['书名'])
+            || {};
+          const title = cleanTitle(String(parsed.title || '').trim());
+          if (!title) throw new Error('AI 没给出书名，请再点一次');
+          // 目标读者必须落在平台自己的枚举里（番茄：男频/女频；七猫：男生/女生）
+          const wanted = String(parsed.targetReader || '').trim();
+          const reader = p.readerOptions.find((x) => x === wanted) || p.readerOptions[0];
+          await this.prisma.novel.update({
+            where: { id },
+            data: {
+              title,
+              sellPoint: String(parsed.sellPoint || '').slice(0, 60) || null,
+              targetReader: reader,
+              genre: String(parsed.genre || '').slice(0, 12) || null,
+              outline: String(parsed.outline || '').slice(0, 2000) || null,
+            } as any,
+          });
+          return { title, reader, note: String(parsed.reason || '').slice(0, 120) };
+        },
+      },
+      {
+        key: 'outline',
+        label: '生成全书大纲',
+        run: async () => {
+          const out: any = await this.generateOutline(id, {} as any);
+          return { outlineChanged: !!out.publishCleared };
+        },
+      },
+      {
+        key: 'bible',
+        label: '生成全书脉络 + 分卷时间线',
+        run: async () => {
+          await this.buildBible(id, {} as any);
+          const n: any = await this.getNovel(id);
+          let b: any = {};
+          try { b = JSON.parse(n.bible || '{}'); } catch (e) { b = {}; }
+          const vols: any[] = Array.isArray(b.volumes) ? b.volumes : [];
+          const timeline = vols
+            .map((v: any) => `第${v.volume}卷 ${v.name || ''}（${v.chapterRange || ''}章）：${v.keyEvent || ''}`)
+            .join('\n');
+          await this.prisma.novel.update({
+            where: { id },
+            data: { timeline: timeline || null, bibleStatus: 'done' } as any,
+          });
+          return timeline ? `时间线 ${vols.length} 卷已生成` : '全书脉络已生成';
+        },
+      },
+      {
+        key: 'publish',
+        label: '生成简介 / 主角 / 签约模式 / 阅读标签 / 内容标签',
+        run: async () => {
+          await this.generatePublishInfo(id);
+          return '上架资料已生成';
+        },
+      },
+      {
+        key: 'golden',
+        label: '写黄金 1-3 章（平台验证期曝光全压在这三章）',
+        run: async (ctx) => {
+          // 开书初始化：这三章不占当日日更额度（见 generateChapter 的 skipQuota 说明）
+          const n = await this.writeGoldenChapters(id, false, { skipQuota: true });
+          return n ? `已写出黄金 ${n} 章` : '已有正文章节，跳过';
+        },
+      },
+      {
+        key: 'cover',
+        label: '按情节生成封面（真图）',
+        run: async () => {
+          try {
+            const r: any = await this.coverImageGen(id, {} as any);
+            return { scene: r.scene || '', image: r.url, kb: r.kb };
+          } catch (e: any) {
+            // 生图通道没开 / 额度用完时不让整条流水线断掉：退回方案图，前端 canvas 仍能出封面
+            const plan: any = await this.coverPlan(id, {} as any);
+            return {
+              scene: plan && plan.scene ? plan.scene : '',
+              fallback: e?.message || '生图不可用',
+            };
+          }
+        },
+      },
+      {
+        key: 'done',
+        label: '汇总',
+        run: async () => {
+          const n: any = await this.getNovel(id);
+          return {
+            id,
+            title: n.title,
+            sellPoint: n.sellPoint || '',
+            targetReader: n.targetReader || '',
+            genre: n.genre || '',
+            timeline: n.timeline || '',
+            contractMode: n.contractMode || '未签约',
+          };
+        },
+      },
+    ]);
+  }
+
+  /** 一键开书的定位提示词：把书名铁律与"被拒避坑"一起压进去 */
+  private quickPlanPrompt(
+    n: any,
+    p: any,
+    avoid?: { title?: string; reason?: string; outline?: string },
+    opinion?: string,
+  ) {
+    const avoidLine = avoid && (avoid.title || avoid.reason)
+      ? `\n【硬性避坑】作者上一部《${avoid.title || '（未命名）'}》被平台拒了${avoid.reason ? `，驳回原话：「${avoid.reason}」` : ''}。\n`
+        + '本次必须换方向：换题材 / 换切入角度 / 换金手指，禁止沿用上一部的主线，也禁止只换个书名了事。\n'
+        + '特别针对驳回原因逐条改：矛盾欠缺 → 让反派当场出手、主角真的输一次；'
+        + '看点不足 → 每章至少一个爽点、感情线每章推进一格；'
+        + '开篇缺乏吸引力 → 开场直接进入"有人正在跟主角对着干"的场面，不许用梦境 / 回忆 / 接旨 / 身世交代开局。'
+        + (avoid.outline ? `\n上一部大纲（仅供避坑，禁止复用）：${String(avoid.outline).slice(0, 300)}` : '')
+      : '';
+    return `你是【${p.name}】平台的网文主编，现在要开一部新书。
+【目标读者】只能从 ${p.readerOptions.join(' / ')} 里选 1 个，写进 targetReader。
+【书名铁律】① 8-14 字，必须含题材词（一眼看出讲什么）；② 不带导流词（加微信 / 看全文 / 搜…）；
+③ 不带极限词（最强 / 第一 / 天下无双）；④ 拒绝文艺腔（"那年烟花微凉"这种没有题材信息的不要）。
+【过审铁律】开篇不做梦境与前世闪回，直接进冲突；反派要当场出手；主角会受压但能翻盘。
+${opinion ? `\n【作者的方向要求（必须落实）】${opinion}` : ''}
+${avoidLine}
+只输出 JSON（不要解释、不要 markdown 围栏）：
+{"title":"书名","sellPoint":"一句话卖点（≤30字，含冲突与反差）","targetReader":"${p.readerOptions[0]}","genre":"题材（2-4字）","outline":"全书大纲 300-500 字：开局钩子 → 第一个爽点 → 主线推进 → 中期反转 → 结局走向","reason":"为什么这样开更容易过审（≤60字）"}`;
+  }
+
+  /**
+   * 【被平台拒了】登记原因 → 该作品转"被拒"，立刻腾出这个平台的在写名额。
+   * 原因原文和当时的作品快照一并留档（Feedback 表，只增不删），
+   * 这是我们唯一真实的外部裁判信号：自己的体检再准也只是"自评"。
+   */
+  async rejectNovel(id: string, dto: RejectDto = {}) {
+    const n: any = await this.getNovel(id);
+    const reason = String(dto.reason || '').trim();
+    const chapters = await this.prisma.chapter.findMany({
+      where: { novelId: id, stale: false } as any,
+      select: { content: true },
+    });
+    const wordCount = chapters.reduce((s: number, c: any) => s + ((c.content || '') as string).length, 0);
+    await this.prisma.novel.update({
+      where: { id },
+      data: { status: 'rejected', rejectReason: reason || null, rejectedAt: new Date() } as any,
+    });
+    const fb = await this.recordFeedback(id, 'rejected', reason, {
+      chapterCount: chapters.length,
+      wordCount,
+    });
+    return {
+      id,
+      status: 'rejected',
+      reason,
+      summary: fb.summary,
+      platform: n.platform,
+      slotFreed: true, // 这个平台的"在写"名额已空出来，可以直接重开一本
+    };
+  }
+
+  /** 过审了：同样留一条正向样本。以后对比"过与不过"的差别，全靠这一正一反两批数据 */
+  async passNovel(id: string, dto: RejectDto = {}) {
+    const n: any = await this.getNovel(id);
+    const note = String(dto.reason || '').trim();
+    const chapters = await this.prisma.chapter.findMany({
+      where: { novelId: id, stale: false } as any,
+      select: { content: true },
+    });
+    const wordCount = chapters.reduce((s: number, c: any) => s + ((c.content || '') as string).length, 0);
+    await this.prisma.novel.update({
+      where: { id },
+      data: { contractStatus: 'signed', contractMode: '已签约' } as any,
+    });
+    const fb = await this.recordFeedback(id, 'passed', note, {
+      chapterCount: chapters.length,
+      wordCount,
+    });
+    return { id, status: 'passed', note, summary: fb.summary };
+  }
+
+  /** 这部作品历次平台反馈（被拒 / 过审），按时间倒序 */
+  async listFeedback(id: string) {
+    await this.getNovel(id);
+    return this.prisma.feedback.findMany({ where: { novelId: id }, orderBy: { createdAt: 'desc' } });
+  }
+
+  /**
+   * 反馈落库：驳回原文 + 当时的作品快照 + AI 总结。
+   * 快照必须留 —— 三个月后回看"当时到底写了什么才被拒"，没有快照就只能凭印象。
+   */
+  private async recordFeedback(
+    id: string,
+    kind: 'rejected' | 'passed',
+    reason: string,
+    extra: { chapterCount?: number; wordCount?: number } = {},
+  ) {
+    const n: any = await this.getNovel(id);
+    let bible: any = {};
+    try { bible = JSON.parse(n.bible || '{}'); } catch (e) { bible = {}; }
+    const snapshot = {
+      title: n.title,
+      sellPoint: n.sellPoint || '',
+      targetReader: n.targetReader || '',
+      genre: n.genre || '',
+      outline: (n.outline || '').slice(0, 1500),
+      intro: n.intro || '',
+      tags: n.tags ? tryParseJson(n.tags, ['reading']) : null,
+      coreSetting: bible.coreSetting || '',
+      volumes: (bible.volumes || []).slice(0, 8),
+    };
+    let summary = '';
+    try { summary = await this.summarizeFeedback(n, kind, reason); } catch (e) { summary = ''; }
+    return this.prisma.feedback.create({
+      data: {
+        novelId: id,
+        userId: n.userId || null,
+        guestKey: n.guestKey || null,
+        platform: n.platform,
+        kind,
+        reason,
+        snapshot: JSON.stringify(snapshot),
+        summary: summary || null,
+        chapterCount: extra.chapterCount || 0,
+        wordCount: extra.wordCount || 0,
+      } as any,
+    });
+  }
+
+  /** 把一条平台反馈翻译成"下次能直接执行的规则"，沉淀成写作规则的依据 */
+  private async summarizeFeedback(n: any, kind: 'rejected' | 'passed', reason: string): Promise<string> {
+    if (!reason) {
+      return kind === 'passed' ? '作者标记为过审（未填说明）' : '作者标记为被拒（未填平台原因）';
+    }
+    const prompt = `你是网文主编，负责把平台的真实反馈沉淀成团队规则。
+作品：《${n.title}》，平台=${n.platform}，题材=${n.genre || ''}，目标读者=${n.targetReader || ''}
+${kind === 'passed' ? '平台结论：通过/过审' : '平台结论：拒稿'}
+${kind === 'passed' ? '作者的说明' : '平台驳回原话'}：${reason}
+请输出 JSON（不要解释）：
+{"category":"归到哪一类短板（从 故事矛盾 / 看点爽点 / 开篇吸引力 / 人设 / 节奏 / 标签题材 / 合规风险 / 其他 里选 1 个）",
+ "summary":"≤80 字：这次栽在哪 + 下次开书必须怎么做（要能直接写成一条规则）"}`;
+    const parsed = tryParseJson(await this.ai.chat(prompt, 60000), ['summary']) || {};
+    return `${parsed.category ? `【${parsed.category}】` : ''}${String(parsed.summary || '').slice(0, 200)}`;
+  }
+
+  /**
+   * 【被拒后自动重开一本】把旧作品标成被拒（腾出名额）→ 立刻在同一平台新建一部，
+   * 并把"上一部为什么被拒"作为硬约束交给 AI，避免换个书名又写回同一个坑。
+   */
+  async restartAfterReject(id: string, dto: RejectDto = {}) {
+    const old: any = await this.getNovel(id);
+    // 作者可能直接点"重开一本"而没先登记原因：这里补登记，保证反馈数据不漏
+    if (old.status !== 'rejected') {
+      await this.rejectNovel(id, { reason: dto.reason });
+    }
+    return this.quickStart(
+      {
+        platform: old.platform,
+        penName: old.penName || undefined,
+        authorIntro: old.authorIntro || undefined,
+        avoid: {
+          title: old.title,
+          reason: String(dto.reason || old.rejectReason || '').trim(),
+          outline: old.outline || '',
+        },
+        parentId: id,
+      },
+      old.userId || null,
+      old.guestKey || null,
+    );
+  }
+
   async updateNovel(id: string, dto: UpdateNovelDto) {
     const before: any = await this.getNovel(id);
     const data: any = { ...dto };
 
     // 每章字数：游客级别锁死不给调，付费级别也不能超过自己等级的上限。
     // 这一条是"字数不可以改"的落点 —— 只在这里卡，正文其余部分照常可编辑。
+    // 转回「在写」同样要占名额：每个平台最多 1 部在写。
+    // 不在这个口子卡的话，"把被拒/归档的作品改回在写"就能绕过新架构的硬约束。
+    if ((dto as any).status === 'writing' && before.status !== 'writing') {
+      const q = await currentQuota(this.prisma as any, before.userId || null, before.guestKey || null);
+      const slot = checkPlatformSlot(q, before.platform);
+      if (slot) throw new BadRequestException(slot);
+    }
     if ((dto as any).chapterWords != null) {
       const want = Number((dto as any).chapterWords);
       const q = await currentQuota(this.prisma as any, before.userId || null, before.guestKey || null);
@@ -1908,6 +2259,10 @@ ${ANTI_CLASH_RULE}
     const q0 = await currentQuota(this.prisma as any, (owner as any).userId || null, (owner as any).guestKey || null);
     const deny0 = checkChapterLimit(q0, n);
     if (deny0) throw new BadRequestException(deny0);
+    // 每天 1 万字：连写 N 章时按"预估字数"一次算清，别写到第 4 章才发现今天额度早烧完了
+    const perWords = Number(wordCount) || (owner as any).chapterWords || 2000;
+    const denyW = checkWordLimit(q0, perWords * n);
+    if (denyW) throw new BadRequestException(denyW);
 
     const chapters = await this.prisma.chapter.findMany({
       where: { novelId: id, stale: false } as any,
@@ -2053,10 +2408,15 @@ ${ANTI_CLASH_RULE}
         label: '按新情节重新生成封面',
         run: async () => {
           try {
-            await this.coverPlan(id, {} as any);
-            return '封面已按新情节重新设计';
+            await this.coverImageGen(id, { seed: Math.floor(Math.random() * 100000) } as any);
+            return '封面已按新情节重新出图';
           } catch (e: any) {
-            return `封面重出失败（不影响正文）：${e?.message || '未知原因'}`;
+            try {
+              await this.coverPlan(id, {} as any);
+              return `真图封面跳过（${e?.message || '生图不可用'}），已退回方案图`;
+            } catch (e2: any) {
+              return `封面重出失败（不影响正文）：${e2?.message || '未知原因'}`;
+            }
           }
         },
       },
@@ -2268,7 +2628,7 @@ ${lines}${dupLine}
    * @param force true=整部重建（脉络刚重出 / 换过名）：旧章节与新设定必然对不上，先清干净再写黄金三章。
    *  false=只补缺失的开篇（普通续写场景，绝不删已有稿子）。
    */
-  private async writeGoldenChapters(id: string, force = false) {
+  private async writeGoldenChapters(id: string, force = false, opts: { skipQuota?: boolean } = {}) {
     const n = await this.getNovel(id);
     // 只要脉络内容真的在就能写稿（bibleStatus 仅用于展示）。
     // 注意：不能只判 `!n.bible` —— 空对象 "{}" 也是真值，旧数据就有这种"看着有、其实是空"的脉络。
@@ -2284,7 +2644,10 @@ ${lines}${dupLine}
     if (!force && await this.prisma.chapter.count({ where: { novelId: id, stale: false } as any })) return 0;
     let done = 0;
     for (const instruction of GOLDEN_CHAPTERS) {
-      await this.generateChapter(id, { instruction });
+      // 章间留一点间隔：模型有 QPM（每分钟请求数）上限，三章连写必然贴线。
+      // AI 层有退避重试兜底，这里主动错峰只是为了让等待更短、日志更干净。
+      if (done) await new Promise((r) => setTimeout(r, 6000));
+      await this.generateChapter(id, { instruction }, opts);
       done++;
     }
     await this.dedupeChapters(id); // 写完再兜一次：万一还有并发/重试留下的重复章，这里清掉
@@ -3670,7 +4033,10 @@ protagonists 提取 3-5 个最重要人物，name 必须来自上面人物表；
         intro: String(parsed.intro),
         protagonists: JSON.stringify(parsed.protagonists || []),
         tags: JSON.stringify({ reading: parsed.readingTags || {}, content: parsed.contentTags || {} }),
-        contractMode: parsed.contractMode || (n.contractStatus === 'signed' ? '已签约' : '签约（未签约）'),
+        // 未签约是默认状态：作者没点「过审」，就不能替他宣称签约方式
+        contractMode: n.contractStatus === 'signed'
+          ? (parsed.contractMode || '已签约')
+          : '未签约',
         serialMode: parsed.serialMode || '日更连载',
       } as any,
     });
@@ -3681,7 +4047,183 @@ protagonists 提取 3-5 个最重要人物，name 必须来自上面人物表；
     return this.shapePublishInfo(await this.getNovel(id));
   }
 
-  // ==================== 封面：按情节生成「封面方案」 ====================
+  // ==================== 封面：真图（生图底图 + 服务端精确叠字） ====================
+
+  /**
+   * 【真图封面】技能 novel-cover-cn 的流水线，搬到后端：
+   *   ① 文模型按这部作品的情节写一句「无字画面」脚本（不许出现任何文字）
+   *   ② 云函数生图拿底图（写在画面里的中文必是乱码，所以底图必须无字）
+   *   ③ @napi-rs/canvas 精确叠上书名/笔名/题材标签（先描边后填色）
+   *   ④ 底部黑带盖掉生图工具的水印，转 JPEG 落盘
+   *
+   * 和 coverPlan 的区别：coverPlan 只给「方案」，由小程序 canvas 画扁平矢量图（观感差）；
+   * 这里出的是可直接上传平台的照片级成品图。coverPlan 保留作为生图不可用时的兜底。
+   */
+  async coverImageGen(id: string, dto: CoverImageDto) {
+    const n: any = await this.getNovel(id);
+    const p = getPlatform(n.platform);
+    let bible: any = {};
+    try { bible = n.bible ? JSON.parse(n.bible) : {}; } catch (e) { bible = {}; }
+    const v1 = (bible.volumes || [])[0] || {};
+    let tags: any = {};
+    try { tags = n.tags ? JSON.parse(n.tags) : {}; } catch (e) { tags = {}; }
+
+    const meta: CoverMeta = {
+      title: String(dto.title || n.title || '未命名').trim(),
+      platform: n.platform,
+      platformName: p.name,
+      genre: n.genre || '',
+      targetReader: n.targetReader || '',
+      sellPoint: n.sellPoint || '',
+      outline: n.outline || '',
+      coreSetting: bible.coreSetting || '',
+      keyEvent: v1.keyEvent || '',
+      mainTag: (tags.reading && tags.reading.main) || '',
+      characters: charListOf(bible, n.protagonists).slice(0, 4)
+        .map((c: any) => `${c.name}（${c.role || ''}）`).join('、'),
+    };
+
+    // ① 画面脚本。让模型吐 JSON（比"只回一句"守规矩得多），再清洗一遍；
+    //    万一它还是跑偏（讲一堆解释、给英文提示词），就退回按作品字段拼的兜底画面 —— 保证出得了封面。
+    let scene = cleanScene(String(dto.scene || ''));
+    if (!scene) {
+      const raw = await this.ai.chat(scenePromptOf(meta), 90000);
+      const parsed: any = tryParseJson(raw, ['scene']) || {};
+      scene = cleanScene(parsed.scene || '') || cleanScene(raw);
+    }
+    if (!scene) scene = fallbackScene(meta);
+    if (dto.opinion) scene = `${scene}；${String(dto.opinion).trim()}`;
+    const prompt = wrapCoverPrompt(scene, meta);
+
+    // ② 底图：reuseBase 时复用上次的底图，只换字重出（省一次生图额度）
+    let base: Buffer | null = null;
+    if (dto.reuseBase) base = this.readCoverBase(id);
+    if (!base) {
+      // 报错要带着人话给前端：生图通道没开 / 额度用尽 / 云函数没更新，都是作者能自己去解决的事
+      try {
+        const url = await this.ai.image(prompt, { seed: dto.seed });
+        base = await this.downloadImage(url);
+      } catch (e: any) {
+        throw new BadRequestException(`出图失败：${e?.message || '未知原因'}`);
+      }
+      this.writeCoverBase(id, base); // 底图留档，改名/换笔名时不用重新生图
+    }
+
+    // ③ 叠字 ④ 落盘
+    const W = 900;
+    const title = meta.title;
+    const palette = this.parseColor(dto.color);
+    const res = await composeCover(base, {
+      title,
+      // 8 字以内单行更醒目；超长书名自动拆两行（换行点优先在标点后）
+      top: 0.665,
+      outW: W,
+      author: dto.author || n.penName || '',
+      sub: dto.sub || coverSubtitle(meta),
+      color: palette,
+    });
+
+    const file = await this.saveCoverFile(id, res.buf);
+    await this.prisma.novel.update({
+      where: { id },
+      data: {
+        coverFile: file,
+        coverPrompt: prompt,
+        coverAt: new Date(),
+        // 书名万一在封面生成后被改过，这里同步一次，保证「封面书名 = 后台书名」
+        ...(dto.title && dto.title !== n.title ? { title: dto.title } : {}),
+      } as any,
+    });
+
+    return {
+      file,
+      url: `/novel/${id}/cover.jpg?v=${Date.now()}`,
+      prompt,
+      scene,
+      title1: res.title1,
+      title2: res.title2,
+      size: `${res.W}x${res.H}`,
+      font: res.font,
+      kb: Math.round(res.buf.length / 1024),
+    };
+  }
+
+  /** 读已生成的封面信息（页面进来时按需拉，不给列表接口增加体积） */
+  async getCoverImage(id: string) {
+    const n: any = await this.getNovel(id);
+    const exists = !!n.coverFile && this.coverFilePath(n.coverFile) !== '';
+    return {
+      url: exists ? `/novel/${id}/cover.jpg?v=${(n.coverAt ? new Date(n.coverAt).getTime() : 0)}` : '',
+      prompt: n.coverPrompt || '',
+      at: n.coverAt || null,
+      imageEnabled: this.ai.imageEnabled,
+    };
+  }
+
+  /** 封面图落盘目录（服务器上就是 C:/erp/novel-backend/uploads/covers） */
+  private coverDir() {
+    return path.join(process.cwd(), 'uploads', 'covers');
+  }
+
+  /** 按作品 id 取封面图绝对路径；没有就返回空串（前端走 canvas 兜底） */
+  async coverAbsPath(id: string): Promise<string> {
+    const n: any = await this.getNovel(id);
+    return n.coverFile ? this.coverFilePath(n.coverFile) : '';
+  }
+
+  /** 相对路径 → 绝对路径；文件不在就返回空串（前端据此走兜底） */
+  coverFilePath(rel: string) {
+    const clean = String(rel || '').replace(/^[/\\]+/, '').replace(/\.\./g, '');
+    if (!clean) return '';
+    const abs = path.join(process.cwd(), 'uploads', clean);
+    return fs.existsSync(abs) ? abs : '';
+  }
+
+  private async saveCoverFile(id: string, buf: Buffer) {
+    const dir = this.coverDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const rel = `covers/${id}.jpg`;
+    fs.writeFileSync(path.join(dir, `${id}.jpg`), buf);
+    return rel;
+  }
+
+  /** 底图留档：改名/换笔名/换配色时重跑叠字即可，不用再烧一次生图额度 */
+  private writeCoverBase(id: string, buf: Buffer) {
+    try {
+      const dir = path.join(this.coverDir(), 'base');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `${id}.png`), buf);
+    } catch (e) { /* 留档失败不影响出图 */ }
+  }
+
+  private readCoverBase(id: string): Buffer | null {
+    try {
+      const p = path.join(this.coverDir(), 'base', `${id}.png`);
+      return fs.existsSync(p) ? fs.readFileSync(p) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** 下载底图（用 Node 内置 fetch，不额外引依赖） */
+  private async downloadImage(url: string): Promise<Buffer> {
+    const res = await fetch(url, { signal: AbortSignal.timeout(90000) });
+    if (!res.ok) throw new Error(`下载底图失败 HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 2000) throw new Error(`生图返回的文件过小（${buf.length}B），可能已过期`);
+    return buf;
+  }
+
+  /** "245,215,138" → [245,215,138]；非法值回落技能默认的哑金 */
+  private parseColor(s?: string): [number, number, number] | undefined {
+    const m = String(s || '').split(',').map((x) => parseInt(x.trim(), 10));
+    if (m.length === 3 && m.every((x) => Number.isFinite(x) && x >= 0 && x <= 255)) {
+      return [m[0], m[1], m[2]];
+    }
+    return undefined;
+  }
+
+  // ==================== 封面：按情节生成「封面方案」（兜底） ====================
 
   /**
    * 封面方案：AI 读这部作品自己的情节（大纲 + 核心设定 + 首卷锚定事件 + 人物表），
@@ -3892,7 +4434,7 @@ figure.pose: hold(手拿道具) | walk(侧身走动) | look(回望)
       protagonists: ready ? read(n.protagonists, []) : [],
       readingTags: ready ? tags.reading || null : null,
       contentTags: ready ? tags.content || null : null,
-      contractMode: n.contractMode || (n.contractStatus === 'signed' ? '已签约' : '签约（未签约）'),
+      contractMode: n.contractMode || (n.contractStatus === 'signed' ? '已签约' : '未签约'),
       serialMode: n.serialMode || '',
       hasBible,
       ready,
@@ -3916,14 +4458,23 @@ figure.pose: hold(手拿道具) | walk(侧身走动) | look(回望)
   }
 
   /** AI 生成下一章（强制带入：全书脉络 + 事实台账 + 目录 + 最近三章摘要） */
-  async generateChapter(id: string, dto: GenerateChapterDto) {
+  /**
+   * @param opts.skipQuota 开书初始化（写黄金三章）专用：一次性把开头三章铺出来，
+   *   不能被「今日额度」掐断 —— 否则"新建小说自动出黄金三章"会在第二天就悄悄失效，
+   *   作者看到的是"只写了1章"。日更额度仍然只管「续更」。防刷靠"每天最多开 1 本新书"。
+   */
+  async generateChapter(id: string, dto: GenerateChapterDto, opts: { skipQuota?: boolean } = {}) {
     const n = await this.getNovel(id);
 
     // 今日章节额度：连写时每章进来都会查一次，累计自然收敛，不会超发。
     // 按作品归属算，不按请求头 —— 定版写黄金三章这类内部流程也就自动受限了。
-    const q = await currentQuota(this.prisma as any, (n as any).userId || null, (n as any).guestKey || null);
-    const deny = checkChapterLimit(q, 1);
-    if (deny) throw new BadRequestException(deny);
+    if (!opts.skipQuota) {
+      const q = await currentQuota(this.prisma as any, (n as any).userId || null, (n as any).guestKey || null);
+      const deny = checkChapterLimit(q, 1);
+      if (deny) throw new BadRequestException(deny);
+      const denyW = checkWordLimit(q, Number((dto as any).wordCount) || (n as any).chapterWords || 2000);
+      if (denyW) throw new BadRequestException(denyW);
+    }
 
     const bible = n.bible ? JSON.parse(n.bible) : null;
     // 空对象 "{}" 也算"没有脉络"：那样写出来的章节没有任何中轴线，只会在正文里留下新的矛盾

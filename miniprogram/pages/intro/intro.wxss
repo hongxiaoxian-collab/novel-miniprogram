@@ -5,6 +5,7 @@
   box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, .18);
 }
 .cover-canvas { width: 100%; height: 100%; }
+.cover-img { width: 100%; height: 100%; display: block; background: #111; }
 
 .note {
   background: #fff8e6; border: 2rpx solid #ffe08a; color: #8a6d00;
@@ -39,3 +40,29 @@
 /* 体检遗留问题的角标提醒 */
 .badge { margin-left: 12rpx; font-size: 22rpx; color: #fff; background: #e64340;
   border-radius: 999rpx; padding: 4rpx 14rpx; }
+
+/* 被拒 / 过审状态条 */
+.rejbar {
+  margin: 16rpx 24rpx 0; padding: 18rpx 20rpx; border-radius: 12rpx;
+  background: #fff5f4; border: 2rpx solid #ffd9d4; color: #c0392b; font-size: 25rpx; line-height: 1.7;
+}
+.rejbtn {
+  display: inline-block; margin-top: 12rpx; color: #fff; background: #e64340;
+  font-size: 26rpx; font-weight: 600; padding: 10rpx 26rpx; border-radius: 999rpx;
+}
+.passbar {
+  margin: 16rpx 24rpx 0; padding: 18rpx 20rpx; border-radius: 12rpx;
+  background: #eaf9ef; border: 2rpx solid #b7e7c8; color: #0a7a44; font-size: 25rpx;
+}
+
+/* 被拒原因浮层 */
+.mask {
+  position: fixed; left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, .45); z-index: 99;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.sheet {
+  width: 100%; background: #fff; border-radius: 28rpx 28rpx 0 0;
+  padding: 28rpx 28rpx 40rpx; box-sizing: border-box; max-height: 88vh; overflow-y: auto;
+}
+.sheet-h { font-size: 32rpx; font-weight: 600; margin-bottom: 12rpx; }

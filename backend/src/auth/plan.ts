@@ -8,9 +8,16 @@
 
 /** 单项权益。以后要加新的差异维度，在这里加一个 key 即可 */
 export interface Limits {
-  /** 最多建几部作品 */
+  /** 最多保留几部作品（**含被拒/归档的历史作品**，不是"同时在写几本"） */
   maxNovels: number;
-  /** 每天最多生成多少章 */
+  /** 每个平台最多几部「在写」作品。番茄 1 部 + 七猫 1 部 = 同时在写最多 2 部。
+   *  被拒/归档的作品不算在写，会自动腾出名额 —— 这样"被拒后重开一本"才不会被自己卡住。 */
+  activePerPlatform: number;
+  /** 每天最多「新开」几本书（不含"被拒后自动重开"的）。
+   *  开一本书会一次性生成大纲/脉络/时间线/黄金三章，全是 AI 成本；不设上限就能
+   *  反复删了重开、绕过日更额度白嫖正文。 */
+  dailyNewNovels: number;
+  /** 每天最多生成多少章（作者定的产品口径：每天 1 万字 ≈ 4 章） */
   dailyChapters: number;
   /** 每天最多生成多少字 */
   dailyWords: number;
@@ -57,9 +64,12 @@ export const PLANS: Record<string, Plan> = {
     priceFen: 0,
     days: 0,
     limits: {
-      maxNovels: 3,
-      dailyChapters: 5,
-      dailyWords: 15000,
+      // 历史作品（含被拒）上限给宽一点：被拒重开一本是新书的常态，不能让"攒了几本被拒稿"就把作者卡死
+      maxNovels: 20,
+      activePerPlatform: 1,
+      dailyNewNovels: 1,   // 每天最多新开 1 本（被拒重开的书不占这个名额）
+      dailyChapters: 4,      // 每天 4 章
+      dailyWords: 10000,     // 每天 1 万字
       maxChaptersPerNovel: 60,
       wordPerChapter: 3000,
       chapterWordsEditable: true,
@@ -77,9 +87,11 @@ export const PLANS: Record<string, Plan> = {
     priceFen: 9900, // 99 元/月（占位，等作者定价）
     days: 30,
     limits: {
-      maxNovels: 50,
-      dailyChapters: 50,
-      dailyWords: 200000,
+      maxNovels: 200,
+      activePerPlatform: 1,
+      dailyNewNovels: 1,   // 每天最多新开 1 本（被拒重开的书不占这个名额）
+      dailyChapters: 4,      // 每天 4 章（产品口径，不因付费放开：日更上限是平台节奏，不是权益）
+      dailyWords: 10000,     // 每天 1 万字
       maxChaptersPerNovel: 2000,
       wordPerChapter: 8000,
       chapterWordsEditable: true,
@@ -103,8 +115,10 @@ export const GUEST_PLAN: Plan = {
   priceFen: 0,
   days: 0,
   limits: {
-    maxNovels: 1,          // 只能建 1 本
-    dailyChapters: 1,      // 每天只能写 1 章
+    maxNovels: 2,          // 最多留 2 本（番茄 1 本 + 七猫 1 本，被拒的会腾位置）
+    activePerPlatform: 1,
+      dailyNewNovels: 1,   // 每天最多新开 1 本（被拒重开的书不占这个名额）
+    dailyChapters: 1,      // 游客每天只能写 1 章（登录后才放开到 4 章）
     dailyWords: 3000,
     maxChaptersPerNovel: 10,
     wordPerChapter: 2000,

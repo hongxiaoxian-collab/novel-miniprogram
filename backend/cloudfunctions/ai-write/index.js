@@ -64,11 +64,57 @@ const writeText = async (prompt, modelName) => {
   throw lastErr;
 };
 
-/** 统一处理：拿 prompt 出正文 */
+/* ---------------- 生图 ---------------- */
+/**
+ * 生图渠道。免费额度里含「10 万张生图」，同样只认小程序端 / 云函数来源，
+ * 所以图片也必须从这里出去（自有服务器直连会被拒且按量计费）。
+ * 默认走混元生图；AR 系列（v3.0）留作回退。
+ */
+// 只走 hunyuan-image：SDK 里只有它配了正确的子路径（images/generations）。
+// 换别的 provider 名会落到默认的 images/ar/generations 端点，模型名对不上只会白报错。
+const IMAGE_PROVIDERS = ['hunyuan-image'];
+const IMAGE_MODEL = process.env.AI_IMAGE_MODEL || 'hunyuan-image';
+/** 3:4 竖版，正好是番茄/七猫封面比例 */
+const IMAGE_SIZE = process.env.AI_IMAGE_SIZE || '768x1024';
+
+const genImage = async (prompt, opts = {}) => {
+  const ai = getApp().ai();
+  let lastErr;
+  for (const provider of IMAGE_PROVIDERS) {
+    try {
+      const input = {
+        model: opts.imageModel || IMAGE_MODEL,
+        prompt,
+        size: opts.size || IMAGE_SIZE,
+      };
+      if (opts.seed != null && opts.seed !== '') input.seed = Number(opts.seed);
+      if (opts.style) input.style = opts.style;
+      const res = await ai.createImageModel(provider).generateImage(input);
+      const url = res && res.data && res.data[0] && res.data[0].url;
+      if (url) return url;
+      lastErr = new Error(`渠道 ${provider} 未返回图片 URL：${JSON.stringify(res).slice(0, 200)}`);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+};
+
+/** 统一处理：kind=image 出图（返回临时 URL），否则出文 */
 const handle = async (payload) => {
   if (!payload) return { code: 400, data: { error: 'missing body' } };
   if (TOKEN && payload.token !== TOKEN) return { code: 401, data: { error: 'bad token' } };
   if (!payload.prompt) return { code: 400, data: { error: 'missing prompt' } };
+
+  if (payload.kind === 'image') {
+    try {
+      const url = await genImage(payload.prompt, payload);
+      return { code: 200, data: { url } };
+    } catch (e) {
+      return { code: 500, data: { error: e?.message || String(e) } };
+    }
+  }
+
   try {
     return { code: 200, data: { text: await writeText(payload.prompt, payload.model || MODEL) } };
   } catch (e) {
@@ -112,7 +158,7 @@ const send = (res, code, data) => {
 };
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === 'GET') return send(res, 200, { ok: true, hint: 'POST {token, prompt}' });
+  if (req.method === 'GET') return send(res, 200, { ok: true, hint: 'POST {token, prompt} 出文；POST {token, kind:"image", prompt} 出图' });
   if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
   let payload;
   try {
