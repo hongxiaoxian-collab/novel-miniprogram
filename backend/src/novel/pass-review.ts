@@ -107,8 +107,14 @@ export const SCORE_RULES = {
   leDensity: { key: 'leDensity', weight: 0.12, healthy: [0, 0.032], label: '句式重复度' },
   /** 句长变异系数。AI 文本句长趋同 → 读起来平。 */
   sentVar: { key: 'sentVar', weight: 0.1, healthy: [0.4, 1.6], label: '句长变化' },
-  /** 开篇钩子位置：首个高冲突信号出现在前多少字内。 */
-  hookAt: { key: 'hookAt', weight: 0.14, healthy: [0, 300], label: '开篇钩子' },
+  /**
+   * 开篇钩子位置：首个高冲突信号出现在前多少字内。
+   * 区间 2026-10-10 从 ≤300 字收紧到 **≤200 字**，依据是七猫作者玄弈公开的签约统计：
+   *   「前 200 字没有冲突，80% 作品会被毙掉；前 600 字没有冲突，90% 签约失败」。
+   * 原来按番茄口径定 300 字（番茄是机器审，抓结构指纹）；七猫是人工审，编辑看的就是第一屏。
+   * 同一份稿子两个平台两套标准，这里按更严的七猫口径。
+   */
+  hookAt: { key: 'hookAt', weight: 0.14, healthy: [0, 200], label: '开篇钩子' },
   /** 章末钩子：结尾是否落了"具体发生的事"。 */
   endHook: { key: 'endHook', weight: 0.1, healthy: [1, 1], label: '章末钩子' },
   /** 机械排比（"第一条/第二天/首先其次"式）。 */
@@ -125,23 +131,60 @@ export const SCORE_RULES = {
  *   → 首秀 14-21 天（10 万字完读率均线 16%-17%，>17% 为优秀；追更比理想 2:1）。
  * 这条链路只认三个可观测的东西：**读者点不点开**（开篇）、**读不读完**（章内密度）、
  * **追不追下一章**（章末钩子）。所以冲榜判据全部围绕这三点，其余都是次要的。
+ *
+ * ── 2026-10-10 新增「故事力」三项（foeRate / pressure / openerDialogue）────────
+ * 来源是一次真实的七猫人工拒稿：《王爷装病我装傻》被驳回，编辑原话三条——
+ *   ① 故事矛盾有些欠缺  ② 看点有些不足  ③ 开篇的切入点缺乏足够的吸引力。
+ * 这稿子用原八项判据跑出来几乎全达标（节奏、对话、钩子都在健康区间），
+ * 说明**纯文本指纹查不出"故事没戏"**。人工审看的是：有没有人跟主角对着干、
+ * 主角有没有真的被逼到、开场是不是一个人在自说自话。这三点都可量化，故补进冲榜组。
  */
 export const RANK_RULES = {
   /** 黄金三章强度：前三章（开篇钩子 + 章末钩子 + 冲突密度）的平均分。
    *  平台验证期给新书的曝光几乎全压在前三章，这一项最致命。 */
-  golden3: { key: 'golden3', weight: 0.24, healthy: [70, 100], label: '黄金三章', zeroFatal: true },
+  golden3: { key: 'golden3', weight: 0.19, healthy: [70, 100], label: '黄金三章', zeroFatal: true },
   /** 爽点密度：每千字强情绪/冲突信号命中数。太低 = 平，太高 = 狗血疲劳。
    *  zeroFatal：0 个爽点是最致命的（整章平铺），不能因为区间宽就被算成"差一点点"。 */
-  climax: { key: 'climax', weight: 0.2, healthy: [1.5, 14], label: '爽点密度', zeroFatal: true },
+  climax: { key: 'climax', weight: 0.15, healthy: [1.5, 14], label: '爽点密度', zeroFatal: true },
   /** 章首钩子覆盖率：前 300 字内有冲突信号的章占比。决定每章的"起点留存"。 */
-  hookRate: { key: 'hookRate', weight: 0.18, healthy: [0.6, 1], label: '章首钩子覆盖', zeroFatal: true },
+  hookRate: { key: 'hookRate', weight: 0.12, healthy: [0.6, 1], label: '章首钩子覆盖', zeroFatal: true },
   /** 水段占比：连续 ≥200 字既无对白也无冲突信号的字数占比。这是完读率的头号杀手。 */
-  dry: { key: 'dry', weight: 0.16, healthy: [0, 0.25], label: '水段占比' },
+  dry: { key: 'dry', weight: 0.1, healthy: [0, 0.25], label: '水段占比' },
   /** 章末钩子覆盖率：章末 150 字落了"具体发生的事"的章占比。决定追更比。 */
-  endRate: { key: 'endRate', weight: 0.14, healthy: [0.8, 1], label: '章末钩子覆盖', zeroFatal: true },
+  endRate: { key: 'endRate', weight: 0.11, healthy: [0.8, 1], label: '章末钩子覆盖', zeroFatal: true },
+  /** 【故事力①】反派在场率：本章有"对手主动出手"信号的章占比。
+   *  对应驳回理由"故事矛盾欠缺"——矛盾不是主角自己盘算出来的，必须有人当场动手。
+   *  全书绝大多数章节都没有对手在场，就是"没矛盾"。 */
+  foeRate: { key: 'foeRate', weight: 0.11, healthy: [0.75, 1], label: '反派在场率', zeroFatal: true },
+  /** 【故事力②】主角受压占比：出现"被逼、吃亏、受挫"信号的段落占全章段落的比例。
+   *  对应驳回理由"看点不足"——主角每章都赢、谁也咬不动她，读者就没有情绪落差可追。
+   *  下限太低 = 一路顺风没张力；上限太高 = 憋屈文掉留存。
+   *  实测（2026-10-10）：被七猫以"看点不足"驳回的那本，全书受压比只有 6%，
+   *  其余八项判据全在健康区间——这是唯一抓到"太顺"的指标。 */
+  pressure: { key: 'pressure', weight: 0.1, healthy: [0.06, 0.4], label: '主角受压比' },
+  /** 【故事力③】开篇对白占比：第 1 章前 1000 字里对白字数占比。
+   *  对应驳回理由"开篇切入点缺乏吸引力"——最常见的病是开场一大段梦境/回忆/环境独白，
+   *  主角一个人在场，没有第二个人跟她对着干，读者进不去戏。
+   *  有戏的开场一定有人在说话：对白占比落在 12%-45% 是"有人同台"的可观测证据。 */
+  openerDialogue: { key: 'openerDialogue', weight: 0.05, healthy: [0.12, 0.45], label: '开篇对白占比' },
+  /** 【故事力④】梦境/前世开场：第 1 章前 1000 字是否出现"梦、醒来、前世、重生在"等信号。
+   *  同样是"切入点缺乏吸引力"的病灶，但和③是两种不同的病：
+   *  ③是"没人在场"，④是"在读一段不会发生的事"——读者知道梦境不算数，紧张感当场清零。
+   *  健康值必须是 0：允许它存在等于允许用梦境凑开篇。 */
+  openerDream: { key: 'openerDream', weight: 0.05, healthy: [0, 0], label: '梦境式开场' },
   /** 章节字数稳定性（变异系数）。忽长忽短会让读者预期失控，也影响日更观感。 */
-  wordStability: { key: 'wordStability', weight: 0.08, healthy: [0, 0.3], label: '字数稳定性' },
+  wordStability: { key: 'wordStability', weight: 0.02, healthy: [0, 0.3], label: '字数稳定性' },
 } as const;
+
+/** 【故事力①】对手主动出手的信号：陷害、逼迫、抢、当众羞辱、设局、动手……
+ *  要的是"有人对主角做了什么"，不是主角自己的情绪。 */
+const FOE_WORDS = /(陷害|算计|设局|做局|下套|递刀|做假|假账|克扣|苛待|抢夺|抢走|夺走|逼|胁迫|威胁|要挟|刁难|打压|羞辱|欺|辱骂|掌掴|耳光|扇|踹|推搡|罚|杖责|禁足|幽禁|赶出|逐出|诬|告状|告发|弹劾|对峙|质问|追问|喝道|厉声|冷笑|冷哼|翻脸|撕破脸|阻拦|拦下|截住|下毒|毒|刺杀|行刺|追杀|绑|押|搜|查封|抄|夺|争|不让|不许|没门|休想|你配|给我跪|跪下)/;
+
+/** 【故事力④】梦境/前世开场的信号。命中即判"读者在读一段不会发生的事"。 */
+const DREAM_WORDS = /(梦|梦见|梦里|噩梦|猛地睁开眼|睁开眼|睁眼|惊醒|醒来|醒过来|是场梦|原来是梦|梦回|前世|上一世|上辈子|上一辈子|重生在|重生于|重生回|穿越到|穿到|魂穿)/;
+
+/** 【故事力②】主角受压/受挫的信号：被逼到角落、吃亏、身体与处境的被动反应 */
+const PRESSURE_WORDS = /(脸色.{0,4}(白|青)|血色.{0,4}褪|指尖.{0,4}(掐|攥|紧)|指甲.{0,4}掐|咬牙|攥紧|捏紧|心口.{0,4}(沉|撞|紧)|脚步虚浮|膝盖.{0,3}软|腿.{0,3}软|僵住|僵在|愣在|无从辩驳|辩不|说不出话|一个字也吐不出|忍|咽下|压下去|退了半步|退开半步|被迫|不得不|只能|别无选择|来不及|来不及了|来不及|遭了|完了|心一沉|后背.{0,4}(汗|凉)|冷汗|冒汗|指节.{0,4}白|手.{0,3}抖|声音.{0,3}抖|抖得)/;
 
 /** 强情绪 / 爽点信号：打脸、反击、获得、揭示、危机 —— 爽点密度与黄金三章都用它 */
 const CLIMAX_WORDS = /(打脸|反杀|反击|翻身|逆袭|报复|报应|跪|求饶|认输|服了|愣住|傻眼|震惊|哗然|沸腾|爆|赚|到账|到账|入账|翻倍|暴涨|升级|突破|觉醒|激活|解锁|获得|到手|拿下|拿下|收服|碾压|秒杀|一招|全场|满堂|哗|中奖|中奖|中签|签下|签约|录取|录取|考上|逆转|翻盘|救命|危机|危险|来不及|快逃|跑|完了|糟了|出事|暴露|揭穿|真相|居然|竟然|没想到|万万没想到|凭什么|你算什么东西|给老子)/;
@@ -266,11 +309,15 @@ export function analyzeChapterRank(content: string): {
   endHook: number;
   /** 爽点信号命中数（黄金三章评分用） */
   climaxHits: number;
+  /** 【故事力①】本章是否有对手主动出手：1/0 */
+  foe: number;
+  /** 【故事力②】主角受压段落占全章段落比例 */
+  pressure: number;
 } {
   const raw = String(content || '');
   const t = raw.replace(/\s/g, '');
   const words = t.length;
-  if (words < 50) return { words, climax: 0, dry: 1, headHook: 0, endHook: 0, climaxHits: 0 };
+  if (words < 50) return { words, climax: 0, dry: 1, headHook: 0, endHook: 0, climaxHits: 0, foe: 0, pressure: 0 };
 
   // 爽点 = 情绪/冲突词 + 强标点（！？）。
   // 踩过的坑：只用词表会**漏判好稿** —— 实测一段强冲突的正常网文（"我不签""老周现在在哪？"）
@@ -305,7 +352,17 @@ export function analyzeChapterRank(content: string): {
     }
   }
   const dry = Math.min(1, dryChars / words);
-  return { words, climax, dry, headHook, endHook, climaxHits };
+
+  // 【故事力①】对手在场：整章出现过"有人对主角出手"的信号即算 1。
+  //   只看整章有没有，不看密度——矛盾的有无是 0/1 问题，密度由爽点项负责。
+  const foe = FOE_WORDS.test(raw) ? 1 : 0;
+  // 【故事力②】受压比：按段落统计（段落是网文的最小场景单位），
+  //   命中的是"主角被逼/吃亏/被动反应"，避免把主角的高光时刻也算成压力。
+  const parasAll = raw.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  const pressParas = parasAll.filter((p) => PRESSURE_WORDS.test(p)).length;
+  const pressure = parasAll.length ? pressParas / parasAll.length : 0;
+
+  return { words, climax, dry, headHook, endHook, climaxHits, foe, pressure };
 }
 
 /** 展示用：把某个指标的实测值格式化成带单位的文本 */
@@ -313,7 +370,9 @@ function fmtValue(k: string, v: number): string {
   switch (k) {
     case 'dialogue': return (v * 100).toFixed(1) + '%';
     case 'leDensity': return (v * 100).toFixed(2) + '%';
-    case 'dry': case 'hookRate': case 'endRate': return (v * 100).toFixed(0) + '%';
+    case 'dry': case 'hookRate': case 'endRate':
+    case 'foeRate': case 'pressure': case 'openerDialogue': return (v * 100).toFixed(0) + '%';
+    case 'openerDream': return v >= 1 ? '有' : '无';
     case 'hookAt': return v > 600 ? '开篇 600 字内无冲突' : `第 ${Math.round(v)} 字`;
     case 'endHook': return v >= 1 ? '有' : '无';
     case 'machineParallel': return v ? `${Math.round(v)} 处` : '无';
@@ -330,10 +389,12 @@ function fmtHealthy(k: string, lo: number, hi: number): string {
     case 'dialogue': return `${(lo * 100).toFixed(0)}-${(hi * 100).toFixed(0)}%`;
     case 'leDensity': return `≤${(hi * 100).toFixed(1)}%`;
     case 'dry': return `≤${(hi * 100).toFixed(0)}%`;
-    case 'hookRate': case 'endRate': return `≥${(lo * 100).toFixed(0)}%`;
-    case 'hookAt': return '≤300 字';
+    case 'hookRate': case 'endRate': case 'foeRate': return `≥${(lo * 100).toFixed(0)}%`;
+    case 'pressure': case 'openerDialogue': return `${(lo * 100).toFixed(0)}-${(hi * 100).toFixed(0)}%`;
+    case 'hookAt': return '≤200 字';
     case 'endHook': return '必须有';
     case 'machineParallel': return '0 处';
+    case 'openerDream': return '不许有';
     case 'climax': return `${lo}-${hi} 个/千字`;
     case 'golden3': return `≥${lo} 分`;
     case 'paraMedian': return `${lo}-${hi} 字`;
@@ -395,6 +456,8 @@ export function analyzeBook(
   const per = chapters.map((c) => ({
     order: c.order,
     title: c.title || '',
+    // raw 留给全书级指标用（如开篇对白占比要取第 1 章前 1000 字，得拿到原文）
+    raw: String(c.content || ''),
     ...analyzeChapter(c.content || '', c.title || ''),
     rk: analyzeChapterRank(c.content || ''),
   }));
@@ -429,6 +492,19 @@ export function analyzeBook(
   const wlens = usable.map((p) => p.words);
   const wm = mean(wlens);
   rankValues.wordStability = wlens.length >= 2 && wm > 0 ? std(wlens) / wm : 0;
+  // ── 故事力三项（2026-10-10 补，对应七猫人工驳回的三条理由）──
+  // ① 反派在场率：有对手出手的章占比
+  rankValues.foeRate = usable.length ? usable.filter((p) => p.rk.foe).length / usable.length : 0;
+  // ② 主角受压比：按字数加权平均（长章更能代表这本书的写法）
+  rankValues.pressure = weighted((p) => p.rk.pressure);
+  // ③ 开篇对白占比：只测第 1 章前 1000 字。
+  //    为什么只看前 1000 字：编辑说的是"切入点"，判定就发生在开头这一屏里。
+  const opener = [...usable].sort((a, b) => a.order - b.order)[0];
+  if (opener && (opener as any).raw) {
+    const head = String((opener as any).raw).slice(0, 1000).replace(/\s/g, '');
+    rankValues.openerDialogue = head.length ? dialogueChars(head) / head.length : 0;
+    rankValues.openerDream = DREAM_WORDS.test(head) ? 1 : 0;
+  }
   // 黄金三章：前三章各自按「章首钩子 40 + 章末钩子 30 + 爽点密度 30」打分后取平均
   const first3 = [...usable].sort((a, b) => a.order - b.order).slice(0, 3);
   rankValues.golden3 = first3.length
@@ -464,6 +540,9 @@ export function analyzeBook(
       if (!p.rk.headHook) bad.push('章首无钩子');
       if (!p.rk.endHook) bad.push('章末无钩子');
       if (p.rk.dry > 0.25) bad.push('水段偏多');
+      if (!p.rk.foe) bad.push('无对手出手');
+      if (p.rk.pressure < (RANK_RULES.pressure.healthy[0] as number)) bad.push('主角太顺');
+      if (p.rk.pressure > (RANK_RULES.pressure.healthy[1] as number)) bad.push('憋屈过头');
     }
     return { order: p.order, title: p.title, words: p.words, score: Math.round(s), bad };
   });
@@ -471,7 +550,7 @@ export function analyzeBook(
   const bads = metrics.filter((m) => !m.pass);
   const rankBads = rankMetrics.filter((m) => !m.pass);
   const summary = (bads.length ? `过审：命中 ${bads.length} 项不合规（${bads.map((b) => b.name).join('、')}），先修权重最高的「${bads[0].name}」。 ` : '过审：8 项判据全部达标。 ')
-    + (rankBads.length ? `冲榜：${rankBads.length} 项偏弱（${rankBads.map((b) => b.name).join('、')}），先补「${rankBads[0].name}」。` : '冲榜：6 项判据全部达标。');
+    + (rankBads.length ? `冲榜：${rankBads.length} 项偏弱（${rankBads.map((b) => b.name).join('、')}），先补「${rankBads[0].name}」。` : '冲榜：10 项判据全部达标。');
 
   return {
     score,
@@ -522,6 +601,14 @@ function violationOf(key: string): string {
       return '分发·追更比（章末没钩子 → 不点下一章）';
     case 'wordStability':
       return '分发·更新观感（章节字数忽长忽短）';
+    // ── 故事力三项：机器审不查这些，但人工审（七猫）第一眼就看这些 ──
+    case 'foeRate':
+      return '故事力·矛盾（没有对手出手 = 编辑说的"矛盾欠缺"）';
+    case 'pressure':
+      return '故事力·看点（主角太顺 = 编辑说的"看点不足"）';
+    case 'openerDialogue':
+    case 'openerDream':
+      return '故事力·开篇（开场无人同台 / 在读一段不会发生的事 = 编辑说的"切入点缺乏吸引力"）';
     default:
       return '格式混乱类';
   }
@@ -540,7 +627,8 @@ function whyOf(key: string, v: string): string {
     case 'sentVar':
       return `句长变化 ${v}，句子长度过于趋同，读起来平、没有节奏起伏。`;
     case 'hookAt':
-      return `开篇 ${v}。番茄验证期第一关看"吸量"，前 300 字没冲突，80% 读者在前三行就走了。`;
+      return `开篇 ${v}。七猫公开的签约统计：前 200 字没冲突 80% 被毙、前 600 字没冲突 90% 失败。`
+        + ' 编辑一天看几十篇稿，第一屏抓不住人就没有第二屏。';
     case 'endHook':
       return `章末没有"具体发生的事"，只有景物或感慨。完读率靠章末钩子，钩子软就直接掉量。`;
     case 'machineParallel':
@@ -558,6 +646,19 @@ function whyOf(key: string, v: string): string {
       return `章末钩子覆盖 ${v}。章末没落具体的事，读者不会点下一章，追更比（理想 2:1）拉不起来。`;
     case 'wordStability':
       return `章节字数波动 ${v}。忽长忽短会让追更读者的预期失控，也影响日更观感。`;
+    case 'foeRate':
+      return `反派在场率 ${v}。这些章节里没人真正对主角出过手——矛盾只存在于主角的盘算里。
+        七猫人工审的驳回原话就是"故事矛盾有些欠缺"：矛盾必须是有人当场做了什么。`;
+    case 'pressure':
+      return v.startsWith('-') || parseFloat(v) < 6
+        ? `主角受压比 ${v}，偏低。主角每章都赢、谁也咬不动她，读者没有情绪落差可追——这就是"看点不足"。`
+        : `主角受压比 ${v}，偏高。主角一路吃亏不反击，读者憋屈到弃书，留存会掉。`;
+    case 'openerDialogue':
+      return `开篇对白占比 ${v}。开场的 1000 字里几乎没人在说话，等于主角一个人在场——
+        环境独白撑起来的开场，读者进不去戏，编辑判"切入点缺乏吸引力"。`;
+    case 'openerDream':
+      return `开篇 1000 字是梦境 / 前世闪回 / "一觉醒来重生了"。读者知道梦里的事不算数，
+        第一屏的紧张感当场清零 —— 这正是"切入点缺乏吸引力"最常见的病灶。`;
     default:
       return '不达标';
   }
@@ -594,6 +695,18 @@ function howOf(key: string): string {
       return '逐章检查结尾 150 字，换成一句对白、一个动作或一条新信息，去掉心情感慨与景物收束。';
     case 'wordStability':
       return '把章节字数拉到同一档（如统一 2000-2500 字），补短章或拆分长章。';
+    case 'foeRate':
+      return '给这些章补一个"对手当场出手"的具体动作：当众羞辱、抢东西、设局栽赃、逼她表态、动手打人。'
+        + ' 主角自己盘算不算矛盾，必须有第二个人做了什么。';
+    case 'pressure':
+      return '让主角真的吃一次亏：被逼到退无可退、被夺走一样东西、当众丢一次脸，再靠自己翻回来。'
+        + ' 受压段落控制在全章 6%-40%——太顺没看点，太憋屈掉留存。';
+    case 'openerDialogue':
+      return '把开篇 1000 字的梦境/回忆/环境独白压到 200 字内并后置，开场直接进一个"有人在跟主角对着干"的场面：'
+        + ' 一句质问、一次逼迫、一场当众难堪。让对白占比回到 12%-45%。';
+    case 'openerDream':
+      return '删掉梦境开场，改成从"正在发生的冲突"里切进去：前世仇、金手指、处境交代，'
+        + '全部拆成碎片，在主角跟人交手的空隙里用一两句带出来（梦境/回忆总长 ≤200 字且后置）。';
     default:
       return '按健康区间调整。';
   }
@@ -629,6 +742,15 @@ export function rankFindings(content: string, isGolden = false): string[] {
   if (!rk.headHook) out.push('章首 300 字内没有冲突或反差信号，读者点开就走：' + howOf('hookRate'));
   if (!rk.endHook) out.push('章末 150 字没有落一件具体发生的事，追更拉不起来：' + howOf('endRate'));
   if (rk.dry > 0.25) out.push(`水段占比 ${(rk.dry * 100).toFixed(0)}%（应 ≤25%）：` + howOf('dry'));
+  // ── 故事力（章级可算的两项；开篇对白占比是全书级，不在这里下发）──
+  if (!rk.foe) out.push('本章没有对手出手，矛盾只存在于主角的盘算里：' + howOf('foeRate'));
+  const pLo = RANK_RULES.pressure.healthy[0] as number;
+  const pHi = RANK_RULES.pressure.healthy[1] as number;
+  if (rk.pressure < pLo) {
+    out.push(`主角受压比 ${(rk.pressure * 100).toFixed(0)}%（应 ${pLo * 100}-${pHi * 100}%），这一章赢得太轻松：` + howOf('pressure'));
+  } else if (rk.pressure > pHi) {
+    out.push(`主角受压比 ${(rk.pressure * 100).toFixed(0)}%（应 ${pLo * 100}-${pHi * 100}%），这一章憋屈过头：` + howOf('pressure'));
+  }
   // 黄金三章对爽点密度的要求比普通章更高（验证期全压在这三章上）
   const lo = isGolden ? 3 : (RANK_RULES.climax.healthy[0] as number);
   if (rk.climax < lo) {
