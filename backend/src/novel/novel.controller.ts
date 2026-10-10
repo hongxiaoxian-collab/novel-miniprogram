@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Delete, Body, Param, Query, Put, Res, Headers } from '@nestjs/common';
 import { Response } from 'express';
 import { NovelService } from './novel.service';
-import { uidFromHeader } from '../auth/token';
+import { uidFromHeader, guestFromHeader } from '../auth/token';
 import {
   CreateNovelDto,
   GenerateOutlineDto,
@@ -32,8 +32,12 @@ export class NovelController {
   }
 
   @Get()
-  list(@Query('platform') platform?: string, @Headers('authorization') auth?: string) {
-    return this.svc.listNovels(platform, uidFromHeader(auth));
+  list(
+    @Query('platform') platform?: string,
+    @Headers('authorization') auth?: string,
+    @Headers('x-guest-key') guest?: string,
+  ) {
+    return this.svc.listNovels(platform, uidFromHeader(auth), guestFromHeader(guest));
   }
 
   @Post('recommend-topic')
@@ -106,8 +110,12 @@ export class NovelController {
   }
 
   @Post()
-  create(@Body() dto: CreateNovelDto, @Headers('authorization') auth?: string) {
-    return this.svc.createNovel(dto, uidFromHeader(auth));
+  create(
+    @Body() dto: CreateNovelDto,
+    @Headers('authorization') auth?: string,
+    @Headers('x-guest-key') guest?: string,
+  ) {
+    return this.svc.createNovel(dto, uidFromHeader(auth), guestFromHeader(guest));
   }
 
   @Put(':id')

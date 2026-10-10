@@ -103,8 +103,11 @@ module.exports.has = function (arr, v) {
       <view class="chip {{platform==='qimao'?'blue':''}} {{u.has(genres,item)?'on':''}}" wx:for="{{recTopics}}" wx:key="*this" data-t="{{item}}" bindtap="pickRec"><text wx:if="{{u.has(genres,item)}}" class="tick">✓</text>{{item}}</view>
     </view>
   </view>
-  <view class="label">每章目标字数（硬指标，可改）</view>
-  <input value="{{chapterWords}}" bindinput="onWords" type="number" placeholder="2000" style="border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx" />
+  <view class="label">每章目标字数{{acct && !acct.canEditWords ? '（当前等级固定，不可调）' : '（硬指标，可改）'}}</view>
+  <input wx:if="{{!acct || acct.canEditWords}}" value="{{chapterWords}}" bindinput="onWords" type="number" placeholder="2000" style="border:2rpx solid #ddd;border-radius:10rpx;padding:14rpx" />
+  <view wx:else class="locked-words" bindtap="onLoginUnlock">
+    {{acct.wordPerChapter}} 字 · <text class="lk">点此登录，解锁调整（普通版最高 3000 字）</text>
+  </view>
   <view class="btn" bindtap="next">下一步：目标读者</view>
 </view>
 

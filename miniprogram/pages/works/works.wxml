@@ -2,6 +2,19 @@
   <platform-switch platform="{{platform}}" bind:change="onPlatformChange" />
 </view>
 
+<!-- 账号条：登录状态做成看得见的。以前登录是静默的，作者根本不知道自己登没登录 -->
+<view class="acct">
+  <view class="acct-l">
+    <view class="acct-dot {{acct.loggedIn ? 'on' : ''}}"></view>
+    <text class="acct-name">{{acct ? (acct.loggedIn ? '已登录' : '游客（未登录）') : '…'}}</text>
+    <text class="acct-plan" wx:if="{{acct}}">{{acct.planName}}</text>
+  </view>
+  <view class="acct-r">
+    <text class="acct-quota" wx:if="{{acct}}">{{acct.novels}}/{{acct.maxNovels}} 本</text>
+    <view wx:if="{{acct && !acct.loggedIn}}" class="acct-btn" bindtap="onLogin">登录</view>
+  </view>
+</view>
+
 <ai-note text="本小程序的全部作品、大纲、简介、封面与正文均由人工智能（AI）生成，仅供参考，作者可自行编辑修改。" />
 
 <view class="card">
@@ -23,4 +36,4 @@
   ✍️ 我的笔名：{{pen || '未设置（点此确认）'}}
 </view>
 <view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="goGuide">首次引导 / 笔名推荐</view>
-<view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="goMe">👤 我的（等级 / 隐私 / 注销）</view>
+<view class="btn ghost {{platform==='qimao' ? 'blue' : ''}}" bindtap="goMe">👤 我的（等级 / 会员 / 隐私 / 注销）</view>

@@ -2,6 +2,7 @@ const app = getApp();
 const { request } = require('../../utils/request');
 const { copy } = require('../../utils/clipboard');
 const { getPen, setPen } = require('../../utils/pen');
+const { loadMe, loginNow } = require('../../utils/account');
 
 /** 首次进入的 AI 生成内容声明（只弹一次，版本号变更时会重新弹） */
 const AI_NOTICE_KEY = 'aiNoticeV1';
@@ -10,11 +11,26 @@ const AI_NOTICE_TEXT =
   '发布前请自行核校内容，勿用于违法违规或侵犯他人权益的用途。';
 
 Page({
-  data: { platform: 'fanqie', novels: [], pen: '' },
+  data: { platform: 'fanqie', novels: [], pen: '', acct: null },
   onShow() {
     this.setData({ platform: app.globalData.platform, pen: getPen() });
     this.loadNovels();
+    this.loadAccount();
     this.aiNotice();
+  },
+  /** 顶部账号条：登录态 + 当前等级 + 作品数。以前登录是"隐形"的，作者根本看不到自己登没登 */
+  async loadAccount() {
+    try { this.setData({ acct: await loadMe() }); } catch (e) { /* 静默：账号信息拿不到不影响写稿 */ }
+  },
+  async onLogin() {
+    const r = await loginNow();
+    if (!r.ok) { wx.showToast({ title: r.msg || '登录失败', icon: 'none', duration: 2500 }); return; }
+    await this.loadAccount();
+    await this.loadNovels(); // 登录后能看到自己名下的作品（含刚认领的游客作品）
+    wx.showToast({
+      title: r.claimed ? `已登录，归拢了 ${r.claimed} 本作品` : '已登录',
+      icon: 'none', duration: 2500,
+    });
   },
   /** 首次进入的 AI 生成声明：让用户明确知悉「内容由 AI 生成」 */
   aiNotice() {

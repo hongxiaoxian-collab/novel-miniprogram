@@ -18,6 +18,8 @@ export interface Limits {
   maxChaptersPerNovel: number;
   /** 单章目标字数上限（作者自己调的不超过这个值） */
   wordPerChapter: number;
+  /** 能不能自己调每章字数。游客固定 2000 字不给调，避免白嫖大额度 */
+  chapterWordsEditable: boolean;
   /** 联网撞车查重（要调搜索引擎，有成本） */
   dupCheck: boolean;
   /** 全书重新审一遍（AI 逐章过，最烧额度） */
@@ -60,6 +62,7 @@ export const PLANS: Record<string, Plan> = {
       dailyWords: 15000,
       maxChaptersPerNovel: 60,
       wordPerChapter: 3000,
+      chapterWordsEditable: true,
       dupCheck: true,
       auditFullScan: false, // 普通版只能做收敛式复检（增量），全书重审留给付费
       autoFix: true,
@@ -79,6 +82,7 @@ export const PLANS: Record<string, Plan> = {
       dailyWords: 200000,
       maxChaptersPerNovel: 2000,
       wordPerChapter: 8000,
+      chapterWordsEditable: true,
       dupCheck: true,
       auditFullScan: true,
       autoFix: true,
@@ -86,6 +90,31 @@ export const PLANS: Record<string, Plan> = {
       platforms: ALL_PLATFORMS,
       aiTier: 'pro',
     },
+  },
+};
+
+/**
+ * 游客（未登录）配额。刻意压到"够试写一本"的量，用额度引导登录 —— 作者明确要求。
+ * 不进 PLANS：它不是可购买套餐，且 free/vip 用户永远不该退化成游客。
+ */
+export const GUEST_PLAN: Plan = {
+  code: 'guest',
+  name: '游客（未登录）',
+  priceFen: 0,
+  days: 0,
+  limits: {
+    maxNovels: 1,          // 只能建 1 本
+    dailyChapters: 1,      // 每天只能写 1 章
+    dailyWords: 3000,
+    maxChaptersPerNovel: 10,
+    wordPerChapter: 2000,
+    chapterWordsEditable: false, // 每章字数锁死 2000，不给调
+    dupCheck: false,       // 联网查重要调搜索引擎，有成本
+    auditFullScan: false,
+    autoFix: true,
+    exportDoc: true,
+    platforms: ALL_PLATFORMS,
+    aiTier: 'standard',
   },
 };
 

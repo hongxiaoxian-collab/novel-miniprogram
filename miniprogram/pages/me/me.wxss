@@ -15,3 +15,17 @@
 }
 .ghost { background: #f2f3f5; color: #333; }
 .danger { background: #fdecec; color: #e64340; }
+
+.btn.solid { background: #07c160; color: #fff; margin-top: 16rpx; }
+.card-h { font-size: 30rpx; font-weight: 600; margin-bottom: 8rpx; }
+.goods {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 18rpx 0; border-top: 1rpx solid #f0f0f0;
+}
+.goods-l { display: flex; align-items: baseline; }
+.goods-n { font-size: 28rpx; color: #222; margin-right: 16rpx; }
+.goods-b {
+  font-size: 26rpx; color: #fff; background: #ff8f1f;
+  padding: 10rpx 32rpx; border-radius: 28rpx;
+}
+.goods-b.off { background: #ccc; }

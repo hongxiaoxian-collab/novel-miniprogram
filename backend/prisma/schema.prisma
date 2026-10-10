@@ -16,6 +16,8 @@ model User {
   unionid     String?   // 同一开放平台账号下唯一（绑定公众号/其他小程序后才有）
   level       String    @default("free") // 等级代码，对应 entitlement.ts 的 PLANS：free | vip | ...
   vipExpireAt DateTime? // 付费到期时间；为空=不过期。过期后 resolvePlan 自动降级回 free
+  sessionKey  String?   // 微信 session_key（AES 加密存储）。虚拟支付下单要用它做用户态签名，丢了就付不了款。
+                        // 属敏感凭证：不进日志、不出接口。
   quotaJson   String?   // JSON：手工覆盖的配额（运营调额用），未设则取套餐默认值
   status      String    @default("active") // active | banned（banned 后禁止写操作，数据保留便于申诉）
   createdAt   DateTime  @default(now())
@@ -46,6 +48,7 @@ model Novel {
   userId        String?  // 归属用户。可空：历史作品（登录功能上线前建的）保持 null 且对所有登录用户可见，
                          // 绝不能让作者一登录就发现老作品"不见了"
   user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestKey      String?  // 游客匿名标识（未登录时建的作品挂在这里）。登录后会被"认领"到 userId 并清空。
   platform      String   // 'fanqie' | 'qimao'
   title         String
   penName       String?  // 笔名
@@ -93,6 +96,7 @@ model Novel {
   chapters      Chapter[]
 
   @@index([userId])
+  @@index([guestKey])
 }
 
 // 章节

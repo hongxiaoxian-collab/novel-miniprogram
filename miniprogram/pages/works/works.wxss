@@ -1,1 +1,22 @@
 .top { padding: 20rpx 24rpx; display: flex; justify-content: flex-start; }
+
+/* 账号条 */
+.acct {
+  display: flex; justify-content: space-between; align-items: center;
+  margin: 16rpx 24rpx 0; padding: 16rpx 24rpx;
+  background: #fff; border-radius: 16rpx;
+}
+.acct-l { display: flex; align-items: center; }
+.acct-dot { width: 16rpx; height: 16rpx; border-radius: 50%; background: #ccc; margin-right: 12rpx; }
+.acct-dot.on { background: #07c160; }
+.acct-name { font-size: 28rpx; color: #222; }
+.acct-plan {
+  font-size: 22rpx; color: #07c160; background: #eaf9ef;
+  padding: 4rpx 12rpx; border-radius: 8rpx; margin-left: 12rpx;
+}
+.acct-r { display: flex; align-items: center; }
+.acct-quota { font-size: 26rpx; color: #999; margin-right: 16rpx; }
+.acct-btn {
+  font-size: 26rpx; color: #fff; background: #07c160;
+  padding: 8rpx 24rpx; border-radius: 24rpx;
+}

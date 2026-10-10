@@ -8,53 +8,82 @@
     <view class="card">
       <view class="row">
         <text class="k">账号</text>
-        <text class="v">{{loggedIn ? me.openidMasked : '游客（未登录）'}}</text>
+        <text class="v">{{acct.loggedIn ? acct.openidMasked : '游客（未登录）'}}</text>
       </view>
-      <view class="row" wx:if="{{loggedIn}}">
+      <view class="row" wx:if="{{acct.loggedIn}}">
         <text class="k">注册时间</text>
-        <text class="v">{{me.createdAt}}</text>
+        <text class="v">{{acct.createdAt}}</text>
       </view>
-      <view class="muted tip" wx:if="{{!loggedIn}}">
-        后端未配置小程序密钥，或登录失败。此时功能不受影响，仅不做作品归属隔离。
+      <view class="muted tip" wx:if="{{!acct.loggedIn}}">
+        未登录也能写，但只能建 1 本、每天 1 章、每章字数固定。登录后免费升到普通版：3 本 / 每天 5 章。
       </view>
+      <view class="btn solid" wx:if="{{!acct.loggedIn}}" bindtap="onLogin">微信一键登录（不授权任何个人信息）</view>
     </view>
 
     <!-- 等级与用量 -->
     <view class="card">
       <view class="row">
         <text class="k">当前等级</text>
-        <text class="v strong">{{plan.name}}</text>
+        <text class="v strong">{{acct.planName}}</text>
       </view>
-      <view class="row" wx:if="{{loggedIn && me.vipExpireAt}}">
+      <view class="row" wx:if="{{acct.loggedIn && acct.vipExpireAt}}">
         <text class="k">有效期至</text>
-        <text class="v">{{me.vipExpireAt}}</text>
+        <text class="v">{{acct.vipExpireAt}}</text>
       </view>
       <view class="row">
         <text class="k">作品数</text>
-        <text class="v">{{novelCount}} / {{limits.maxNovels}}</text>
+        <text class="v">{{acct.novels}} / {{acct.maxNovels}} 本</text>
       </view>
       <view class="row">
         <text class="k">今日生成</text>
-        <text class="v">{{usage.chapters}} 章 · {{usage.words}} 字</text>
+        <text class="v">{{acct.chapters}} 章 · {{acct.words}} 字</text>
       </view>
       <view class="row">
         <text class="k">今日上限</text>
-        <text class="v">{{limits.dailyChapters}} 章 · {{limits.dailyWords}} 字</text>
+        <text class="v">{{acct.dailyChapters}} 章 · {{acct.dailyWords}} 字</text>
+      </view>
+      <view class="row">
+        <text class="k">每章字数</text>
+        <text class="v">{{acct.canEditWords ? ('可调，最多 ' + acct.wordPerChapter + ' 字') : ('固定 ' + acct.wordPerChapter + ' 字（登录后可调）')}}</text>
       </view>
       <view class="row">
         <text class="k">全书重审</text>
-        <text class="v">{{limits.auditFullScan ? '可用' : '仅增量复检'}}</text>
+        <text class="v">{{acct.auditFullScan ? '可用' : '仅增量复检'}}</text>
       </view>
+    </view>
+
+    <!-- 升级 VIP -->
+    <view class="card" wx:if="{{acct.planCode !== 'vip'}}">
+      <view class="card-h">👑 升级 VIP 版</view>
+      <view class="muted tip">
+        50 部作品 · 每天 50 章 · 每章最高 8000 字 · 全书重审 · 更强的 AI 档位
+      </view>
+      <block wx:if="{{pay && pay.goods && pay.goods.length}}">
+        <view wx:for="{{pay.goods}}" wx:key="planCode" class="goods">
+          <view class="goods-l">
+            <text class="goods-n">{{item.name}}</text>
+            <text class="muted">¥{{item.priceText}}</text>
+          </view>
+          <view class="goods-b {{buying ? 'off' : ''}}" data-plan="{{item.planCode}}" bindtap="buy">
+            {{buying ? '处理中…' : '购买'}}
+          </view>
+        </view>
+      </block>
+      <view wx:else class="muted tip">
+        会员功能正在开通中（需在小程序后台开通「虚拟支付」并完成配置）。
+      </view>
+      <view class="muted tip" wx:if="{{pay && pay.note}}">{{pay.note}}</view>
     </view>
 
     <!-- 操作 -->
     <view class="btns">
       <view class="btn ghost" bindtap="openPrivacy">查看隐私政策</view>
-      <view class="btn danger" wx:if="{{loggedIn}}" bindtap="destroy">注销账号</view>
+      <view class="btn danger" wx:if="{{acct.loggedIn}}" bindtap="destroy">注销账号</view>
     </view>
 
     <view class="muted tip">
       我们只收集微信 openid 用于识别账号，不收集头像、昵称、手机号、位置等信息。
+      登录是静默的：不弹授权框、不要任何个人信息。
     </view>
   </block>
 </view>

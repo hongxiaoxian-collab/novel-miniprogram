@@ -47,3 +47,9 @@
 /* 候选书名是否已通过联网预检 */
 .dup-ok { flex: none; margin-left: 10rpx; font-size: 20rpx; color: #fff; background: #07c160; border-radius: 6rpx; padding: 2rpx 10rpx; }
 .dup-risk { flex: none; margin-left: 10rpx; font-size: 20rpx; color: #fff; background: #e6a23c; border-radius: 6rpx; padding: 2rpx 10rpx; }
+
+.locked-words {
+  font-size: 28rpx; color: #666; background: #f6f7f9;
+  border-radius: 10rpx; padding: 18rpx 20rpx; line-height: 1.5;
+}
+.locked-words .lk { color: #07c160; }

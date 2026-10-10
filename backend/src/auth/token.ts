@@ -46,3 +46,19 @@ export function uidFromHeader(auth?: string): string | null {
   const t = auth.replace(/^Bearer\s+/i, '').trim();
   return verifyToken(t);
 }
+
+/**
+ * 游客匿名标识。未登录时用它统计"这个游客建了几本、今天写了几章"。
+ *
+ * 为什么不直接按"所有 userId 为空的作品"统算：那样所有游客共用一个池，
+ * A 建了一本就会把 B 卡死 —— 限制必须能落到具体某个游客头上才算数。
+ *
+ * 只做格式校验（6-64 位可见字符），不解析任何内容：
+ * 它来自客户端，永远当不可信输入处理。
+ */
+export function guestFromHeader(h?: string): string | null {
+  if (!h) return null;
+  const k = String(h).trim();
+  if (!/^[A-Za-z0-9_-]{6,64}$/.test(k)) return null;
+  return k;
+}

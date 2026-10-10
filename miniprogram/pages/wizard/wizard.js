@@ -3,6 +3,7 @@ const { request } = require('../../utils/request');
 const { copy } = require('../../utils/clipboard');
 const { runFinalize, runningText, runJob, waitJob, jobText, progOf } = require('../../utils/task');
 const { getPen, ensurePen } = require('../../utils/pen');
+const { loadMe, loginNow } = require('../../utils/account');
 
 const DEFAULT_TOPICS = ['都市', '玄幻', '悬疑', '历史', '科幻', '重生', '机械'];
 // 命中这些关键词的题材，倾向推荐女频
@@ -31,6 +32,7 @@ Page({
     genres: [], genreText: '', genre: '',
     reader: '', readerOptions: [], contract: '',
     chapterWords: 2000,
+    acct: null,           // 当前等级与额度（游客时锁死每章字数）
     customTopic: '', recTopics: [], showRec: false,
     novelId: '', outline: null, loading: false,
     opinion: '',
@@ -61,6 +63,7 @@ Page({
     this.enterId = (q && q.id) || ''; // 进入时的作品 id，页面状态被回收时可兜底
     this.setData({ platform: app.globalData.platform, pen: getPen() });
     this.syncReaderOptions();
+    this.loadAcct();
     if (q && q.id) this.resume(q.id);        // 从作品列表点进来：恢复该作品，直接停在④生成大纲
     else if (q && q.fresh) this.freshStart(); // 点「新建小说」进来：全新一本，绝不带出上一部
     else this.restoreDraft();                 // 其它情况（被系统回收后回来）：接着上次没填完的填
@@ -243,7 +246,56 @@ Page({
     this.toggleGenre(v);
   },
   onCustom(e) { this.setData({ customTopic: e.detail.value }); },
+  /** 当前等级与额度（决定每章字数能不能调、还能建几本） */
+  async loadAcct() {
+    try { this.setData({ acct: await loadMe() }); } catch (e) { /* 查不到就按可改处理，不挡人 */ }
+  },
   onWords(e) { this.setData({ chapterWords: Number(e.detail.value) || 2000 }); this.saveDraft(); },
+  /** 游客点「登录后可调整」：登录后就地解锁字数输入 */
+  async onLoginUnlock() {
+    const r = await loginNow();
+    if (!r.ok) { wx.showToast({ title: r.msg || '登录失败', icon: 'none', duration: 2500 }); return; }
+    await this.loadAcct();
+    wx.showToast({ title: '已解锁', icon: 'none' });
+  },
+  /**
+   * 建新书前的配额闸门。超限就弹窗说明并引导登录，返回 false 表示别建了。
+   * 放在前端是因为后端的 400 会被上层统一 catch 成"生成失败，检查后端"，
+   * 作者根本看不出是配额问题还是真故障。
+   */
+  async ensureCanCreate() {
+    let a = null;
+    try { a = await loadMe(); } catch (e) { return true; } // 查不到就放行，绝不因为查配额挡住写稿
+    if (a.novels < a.maxNovels) return true;
+
+    const canLogin = !a.loggedIn;
+    return new Promise((resolve) => {
+      wx.showModal({
+        title: '作品数已达上限',
+        content: `当前等级「${a.planName}」最多 ${a.maxNovels} 本，你已有 ${a.novels} 本。`
+          + (canLogin ? '登录后可免费升到普通版（3 本），已写的作品会自动归到你的账号下。' : ''),
+        confirmText: canLogin ? '登录解锁' : '我知道了',
+        cancelText: '取消',
+        success: async (r) => {
+          if (!r.confirm || !canLogin) { resolve(false); return; }
+          const ret = await loginNow();
+          if (!ret.ok) {
+            wx.showToast({ title: ret.msg || '登录失败', icon: 'none', duration: 2500 });
+            resolve(false); return;
+          }
+          // 登录后重新判一次：游客作品已被认领，额度按新等级算
+          try {
+            const a2 = await loadMe();
+            if (a2.novels < a2.maxNovels) { wx.showToast({ title: '已解锁，继续', icon: 'none' }); resolve(true); return; }
+          } catch (e) { /* 放行 */ resolve(true); return; }
+          wx.showToast({ title: '仍已达上限', icon: 'none', duration: 2500 });
+          resolve(false);
+        },
+        fail: () => resolve(false),
+      });
+    });
+  },
+
   async aiRecommend() {
     wx.showLoading({ title: 'AI 扫榜中…' });
     try {
@@ -407,7 +459,13 @@ Page({
           app.globalData.novelId = '';
         }
       }
-      if (!id) id = (await request('/novel', 'POST', { ...base, title: this.data.genre + '作品' })).id;
+      // 建之前先查配额：超了就当场说清楚并引导登录，
+      // 别等后端 400 —— 那会被上层 catch 成一句没用的"生成失败，检查后端"。
+      if (!id) {
+        const gate = await this.ensureCanCreate();
+        if (!gate) return;
+        id = (await request('/novel', 'POST', { ...base, title: this.data.genre + '作品' })).id;
+      }
       app.globalData.novelId = id;
       this.setData({ novelId: id, pen: pen || '' });
       // 出大纲走后台任务：要跑一两分钟，退出小程序也照出，回来能看到进度

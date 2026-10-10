@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { currentQuota, checkNovelLimit, checkChapterLimit } from '../auth/quota';
 import { AiService } from '../ai/ai.service';
 import { tryParseJson, looseStringField } from '../common/json.util';
 import {
@@ -439,13 +440,21 @@ export class NovelService {
     return PLATFORMS;
   }
 
-  async listNovels(platform?: string, uid?: string | null) {
+  async listNovels(platform?: string, uid?: string | null, guestKey?: string | null) {
     const base = platform ? { platform } : {};
-    // 登录后仍要看到 userId 为空的历史作品：否则作者一登录就发现老作品"不见了"，会以为数据丢了
     // 「AI 选题」的占位作品（还没选定方案）不进列表：它不是一部书，只是选题任务的载体
+    //
+    // 【踩坑·已修】"历史无主作品"必须同时满足 userId=null **且** guestKey=null。
+    // 只判 userId=null 会把**别的游客**的作品也捞进来 —— 游客建的作品 userId 同样是 null，
+    // 于是 A 的列表里出现了 B 刚写的书（实测复现）。老作品（登录功能上线前建的）才两个都为空。
+    const legacy = { userId: null, guestKey: null };
     const where = uid
-      ? { ...base, planDraft: false, OR: [{ userId: uid }, { userId: null }] }
-      : { ...base, planDraft: false };
+      ? { ...base, planDraft: false, OR: [{ userId: uid }, legacy] }
+      : {
+        ...base,
+        planDraft: false,
+        OR: [legacy, ...(guestKey ? [{ guestKey }] : [])],
+      };
     const list = await this.prisma.novel.findMany({ where, orderBy: { updatedAt: 'desc' } });
     // 【作者反馈·已修】列表"已写 6 章"、点进去只有 3 章：以前直接 _count 全部章节，
     // 连作废章节(stale)也算进去。这里改成只数有效章节，和章节目录（listChapters）口径一致。
@@ -467,13 +476,22 @@ export class NovelService {
     return n;
   }
 
-  async createNovel(dto: CreateNovelDto, uid?: string | null) {
+  async createNovel(dto: CreateNovelDto, uid?: string | null, guestKey?: string | null) {
+    // 配额闸门：只拦"新建"，已有作品永远可编辑 —— 绝不能因为配额把作者锁死在门外
+    const q = await currentQuota(this.prisma as any, uid || null, guestKey);
+    const deny = checkNovelLimit(q);
+    if (deny) throw new BadRequestException(deny);
+
     return this.prisma.novel.create({
       data: {
         ...dto,
         userId: uid || null,
+        guestKey: uid ? null : (guestKey || null),
         title: cleanTitle(dto.title),
-        chapterWords: dto.chapterWords ?? 2000,
+        // 游客不给调每章字数：固定 2000。传了也强制改回，避免绕过
+        chapterWords: q.limits.chapterWordsEditable
+          ? (dto.chapterWords ?? 2000)
+          : q.limits.wordPerChapter,
         tags: dto.tags ? JSON.stringify(dto.tags) : undefined,
       } as any,
     });
@@ -482,6 +500,22 @@ export class NovelService {
   async updateNovel(id: string, dto: UpdateNovelDto) {
     const before: any = await this.getNovel(id);
     const data: any = { ...dto };
+
+    // 每章字数：游客级别锁死不给调，付费级别也不能超过自己等级的上限。
+    // 这一条是"字数不可以改"的落点 —— 只在这里卡，正文其余部分照常可编辑。
+    if ((dto as any).chapterWords != null) {
+      const want = Number((dto as any).chapterWords);
+      const q = await currentQuota(this.prisma as any, before.userId || null, before.guestKey || null);
+      if (!q.limits.chapterWordsEditable) {
+        if (want !== q.limits.wordPerChapter) {
+          throw new BadRequestException(
+            `游客不支持调整每章字数，固定 ${q.limits.wordPerChapter} 字。${q.upsell || ''}`,
+          );
+        }
+      } else if (want > q.limits.wordPerChapter) {
+        throw new BadRequestException(`当前等级每章最多 ${q.limits.wordPerChapter} 字`);
+      }
+    }
     if (data.title) data.title = cleanTitle(data.title); // 书名不带《》：展示时界面统一加
     if (data.dupAccepted) data.dupAccepted = cleanTitle(data.dupAccepted);
     if (dto.tags) data.tags = JSON.stringify(dto.tags);
@@ -1834,6 +1868,14 @@ ${ANTI_CLASH_RULE}
    */
   async startChapterJob(id: string, wordCount?: number, instruction?: string, count = 1) {
     const n = Math.max(1, Math.min(20, Math.floor(Number(count) || 1)));
+
+    // 连写多章时在入口一次查清总数：不然后面写到第 4 章才发现超标，前三章的额度已经烧掉了。
+    // 额度按"这部作品挂在谁名下"算 —— 内部流程（定版写黄金三章等）因此自动受限，不用层层传身份。
+    const owner = await this.getNovel(id);
+    const q0 = await currentQuota(this.prisma as any, (owner as any).userId || null, (owner as any).guestKey || null);
+    const deny0 = checkChapterLimit(q0, n);
+    if (deny0) throw new BadRequestException(deny0);
+
     const chapters = await this.prisma.chapter.findMany({
       where: { novelId: id, stale: false } as any,
       orderBy: { order: 'asc' },
@@ -3843,6 +3885,13 @@ figure.pose: hold(手拿道具) | walk(侧身走动) | look(回望)
   /** AI 生成下一章（强制带入：全书脉络 + 事实台账 + 目录 + 最近三章摘要） */
   async generateChapter(id: string, dto: GenerateChapterDto) {
     const n = await this.getNovel(id);
+
+    // 今日章节额度：连写时每章进来都会查一次，累计自然收敛，不会超发。
+    // 按作品归属算，不按请求头 —— 定版写黄金三章这类内部流程也就自动受限了。
+    const q = await currentQuota(this.prisma as any, (n as any).userId || null, (n as any).guestKey || null);
+    const deny = checkChapterLimit(q, 1);
+    if (deny) throw new BadRequestException(deny);
+
     const bible = n.bible ? JSON.parse(n.bible) : null;
     // 空对象 "{}" 也算"没有脉络"：那样写出来的章节没有任何中轴线，只会在正文里留下新的矛盾
     if (!bible || !this.hasVolumes(bible)) {
