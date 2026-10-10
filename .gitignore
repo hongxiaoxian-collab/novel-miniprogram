@@ -51,8 +51,5 @@ backend/.tmp-patch/
 Thumbs.db
 nul
 
-# 单测临时编译产物
-backend/.tmp-split/
-
-# 单测临时编译产物
+# 单测临时编译产物（scripts/test-split.cjs 自动生成）
 backend/.tmp-split/

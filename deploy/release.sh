@@ -74,11 +74,13 @@ if grep -a -q "服务端口已关闭\|IDE service port disabled" "$LOG"; then
   echo ""
   echo "× 上传失败：开发者工具的服务端口没开。"
   echo "  手动开一次：微信开发者工具 -> 设置 -> 安全设置 -> 服务端口 -> 开启"
-  rm -f "$PS1"; exit 1
+  rm -f "$PS1" || true; exit 1
 fi
 grep -a -q "√ upload\|upload" "$LOG" || echo "× 没看到上传成功标记，请到开发者工具或公众平台确认"
-rm -f "$PS1"
+# 版本号必须先落盘：沙箱的删除拦截会让 rm 非 0 退出，set -e 直接把脚本掐死，
+# 版本号就停在旧值 —— 下次发布会用同一个版本号再传一遍（2026-10-10 实际踩到）。
 echo "$VER" > "$VER_FILE"
+rm -f "$PS1" || true
 echo "    版本号已写入 deploy/version.txt -> $VER"
 echo ""
 echo "==> 完成。下一步：微信公众平台 -> 版本管理 -> 把 v$VER 提交审核（或先设为体验版）"
