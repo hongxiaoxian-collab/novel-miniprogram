@@ -49,6 +49,11 @@
     平台给结果了就点上面两个：被拒会把驳回原因连同作品快照存成原始数据，过审记成成功样本，都用来改进后面开的书。
   </view>
 
+  <!-- ③ 爽点卡：读者为什么追这本书（写稿时按卷自动注入，这里只是给作者看和改） -->
+  <view class="row" style="margin:14rpx 24rpx 0">
+    <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1" bindtap="goHype">🎯 爽点卡（读者为什么追）</view>
+  </view>
+
   <!-- 重开一本的进度 -->
   <view wx:if="{{busyRestart}}" class="pcard">
     <view class="pcard-h">

@@ -13,14 +13,24 @@ export interface Limits {
   /** 每个平台最多几部「在写」作品。番茄 1 部 + 七猫 1 部 = 同时在写最多 2 部。
    *  被拒/归档的作品不算在写，会自动腾出名额 —— 这样"被拒后重开一本"才不会被自己卡住。 */
   activePerPlatform: number;
-  /** 每天最多「新开」几本书（不含"被拒后自动重开"的）。
+  /** **每个平台**每天最多「新开」几本书（不含"被拒后自动重开"的）。
    *  开一本书会一次性生成大纲/脉络/时间线/黄金三章，全是 AI 成本；不设上限就能
-   *  反复删了重开、绕过日更额度白嫖正文。 */
+   *  反复删了重开、绕过日更额度白嫖正文。
+   *  按平台各算一份：番茄 1 本 + 七猫 1 本，否则第一天走完向导就再也没法给另一平台开书。 */
   dailyNewNovels: number;
-  /** 每天最多生成多少章（作者定的产品口径：每天 1 万字 ≈ 4 章） */
+  /** 每天最多生成多少章。**口径由 quotaScope 决定**：
+   *  shared = 两个平台合计就这么几章；perPlatform = 每个平台各有这么多章。 */
   dailyChapters: number;
-  /** 每天最多生成多少字 */
+  /** 每天最多生成多少字。口径同上，由 quotaScope 决定 */
   dailyWords: number;
+  /**
+   * 额度口径（作者 2026-10-10 定的规则，两个档位刻意不同）：
+   * - `shared`      免费/游客：番茄 + 七猫**共用**同一份日额度（4000 字 / 2 章）。
+   * - `perPlatform` VIP：番茄、七猫**各自独立**一份（各 1 万字 / 4 章），
+   *   写七猫的章节绝不会去扣番茄的额度。
+   * 所有按平台/合计的判断都只能读这个字段，不许在业务代码里写死档位名。
+   */
+  quotaScope: 'shared' | 'perPlatform';
   /** 单部作品最多多少章 */
   maxChaptersPerNovel: number;
   /** 单章目标字数上限（作者自己调的不超过这个值） */
@@ -67,11 +77,12 @@ export const PLANS: Record<string, Plan> = {
       // 历史作品（含被拒）上限给宽一点：被拒重开一本是新书的常态，不能让"攒了几本被拒稿"就把作者卡死
       maxNovels: 20,
       activePerPlatform: 1,
-      dailyNewNovels: 1,   // 每天最多新开 1 本（被拒重开的书不占这个名额）
-      dailyChapters: 4,      // 每天 4 章
-      dailyWords: 10000,     // 每天 1 万字
+      dailyNewNovels: 1,     // 每天最多新开 1 本（两平台共享，被拒重开的书不占这个名额）
+      dailyChapters: 2,      // 两平台合计每天 2 章
+      dailyWords: 4000,      // 两平台合计每天 4000 字
+      quotaScope: 'shared',
       maxChaptersPerNovel: 60,
-      wordPerChapter: 3000,
+      wordPerChapter: 2000,  // 4000 ÷ 2 章 = 2000，默认字数正好卡满当日额度
       chapterWordsEditable: true,
       dupCheck: true,
       auditFullScan: false, // 普通版只能做收敛式复检（增量），全书重审留给付费
@@ -89,11 +100,12 @@ export const PLANS: Record<string, Plan> = {
     limits: {
       maxNovels: 200,
       activePerPlatform: 1,
-      dailyNewNovels: 1,   // 每天最多新开 1 本（被拒重开的书不占这个名额）
-      dailyChapters: 4,      // 每天 4 章（产品口径，不因付费放开：日更上限是平台节奏，不是权益）
-      dailyWords: 10000,     // 每天 1 万字
+      dailyNewNovels: 1,     // 每个平台每天最多新开 1 本（被拒重开的书不占这个名额）
+      dailyChapters: 4,      // 每个平台每天 4 章
+      dailyWords: 10000,     // 每个平台每天 1 万字（番茄一份、七猫一份）
+      quotaScope: 'perPlatform',
       maxChaptersPerNovel: 2000,
-      wordPerChapter: 8000,
+      wordPerChapter: 2500,  // 1 万字 ÷ 4 章 = 2500
       chapterWordsEditable: true,
       dupCheck: true,
       auditFullScan: true,
@@ -117,9 +129,10 @@ export const GUEST_PLAN: Plan = {
   limits: {
     maxNovels: 2,          // 最多留 2 本（番茄 1 本 + 七猫 1 本，被拒的会腾位置）
     activePerPlatform: 1,
-      dailyNewNovels: 1,   // 每天最多新开 1 本（被拒重开的书不占这个名额）
-    dailyChapters: 1,      // 游客每天只能写 1 章（登录后才放开到 4 章）
-    dailyWords: 3000,
+    dailyNewNovels: 1,     // 每天最多新开 1 本（两平台共享，被拒重开的书不占这个名额）
+    dailyChapters: 1,      // 两平台合计每天只能写 1 章（登录成普通版才放开到 2 章）
+    dailyWords: 3000,      // 两平台合计每天 3000 字
+    quotaScope: 'shared',
     maxChaptersPerNovel: 10,
     wordPerChapter: 2000,
     chapterWordsEditable: false, // 每章字数锁死 2000，不给调
@@ -135,7 +148,58 @@ export const GUEST_PLAN: Plan = {
 /** 缺省套餐：level 查不到、或已过期时一律退回普通版，绝不因为配置缺失把用户锁死 */
 const FALLBACK = PLANS.free;
 
+/**
+ * 「不限量」用一个大数表示，**不能用 Infinity**：
+ * JSON.stringify(Infinity) === 'null'，接口一序列化就变成 0，反而把作者锁死。
+ */
+export const UNLIMITED = 999999999;
+
+/**
+ * 业主（作者本人）白名单。.env 里配 `VIP_OPENIDS=openid1,openid2`。
+ * 作者自己的账号要随便试、随便开书，不能被自己定的额度挡住。
+ */
+export function ownerOpenids(): string[] {
+  return (process.env.VIP_OPENIDS || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/** 这个人是不是业主本人（不限量） */
+export function isOwner(user: UserLike | null | undefined): boolean {
+  const openid = (user as any)?.openid;
+  if (!openid) return false;
+  return ownerOpenids().includes(String(openid));
+}
+
+/**
+ * 作者本人的套餐：所有数值额度一律 UNLIMITED，功能全开。
+ * 不进 PLANS —— 它不是可购买套餐，不能出现在「升级」列表里。
+ */
+export const OWNER_PLAN: Plan = {
+  code: 'owner',
+  name: '作者本人（不限量）',
+  priceFen: 0,
+  days: 0,
+  limits: {
+    maxNovels: UNLIMITED,
+    activePerPlatform: UNLIMITED,
+    dailyNewNovels: UNLIMITED,
+    dailyChapters: UNLIMITED,
+    dailyWords: UNLIMITED,
+    quotaScope: 'perPlatform',
+    maxChaptersPerNovel: UNLIMITED,
+    wordPerChapter: 8000,
+    chapterWordsEditable: true,
+    dupCheck: true,
+    auditFullScan: true,
+    autoFix: true,
+    exportDoc: true,
+    platforms: ALL_PLATFORMS,
+    aiTier: 'pro',
+  },
+};
+
 export type UserLike = {
+  openid?: string | null;
   level?: string | null;
   vipExpireAt?: Date | string | null;
   quotaJson?: string | null;
@@ -146,6 +210,8 @@ export type UserLike = {
  * 过期自动降级为 free —— 付费到期后不该还能用 VIP 权益。
  */
 export function resolvePlan(user: UserLike | null | undefined): Plan {
+  // 业主本人恒不限量，且不看 vipExpireAt —— 作者自己的账号不该因为"没续费"被自己定的规则挡住
+  if (isOwner(user)) return OWNER_PLAN;
   if (!user) return FALLBACK;
   const expired = user.vipExpireAt
     && new Date(user.vipExpireAt).getTime() < Date.now();
@@ -157,6 +223,11 @@ export function resolvePlan(user: UserLike | null | undefined): Plan {
 export function hasFeature(user: UserLike | null, key: keyof Limits): boolean {
   const v = resolvePlan(user).limits[key];
   return typeof v === 'boolean' ? v : true;
+}
+
+/** 这个人的额度是不是「不限量」（业主本人）。前端据此把"今日 0/10000 字"显示成"不限量" */
+export function isUnlimited(user: UserLike | null): boolean {
+  return limitsFor(user).dailyWords >= UNLIMITED;
 }
 
 /** 取数值型额度 */

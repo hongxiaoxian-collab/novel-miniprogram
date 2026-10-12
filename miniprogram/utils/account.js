@@ -22,10 +22,17 @@ function shapeMe(r) {
     activePerPlatform: limits.activePerPlatform || 1,
     dailyChapters: limits.dailyChapters || 0,
     dailyWords: limits.dailyWords || 0,
+    // 作者本人的账号：额度不限量（后端用一个极大数表示）。界面据此显示「不限量」而不是 0/999999999
+    unlimited: (limits.dailyWords || 0) >= 999999,
     wordPerChapter: limits.wordPerChapter || 0,
+    // 额度口径：shared=两个平台共享一份（免费/游客）；perPlatform=每平台各一份（VIP）。
+    // 界面文案与"还能写几章"全靠它，不许在页面里写死档位名。
+    perPlatform: limits.quotaScope === 'perPlatform',
     // 各平台在写数量：{fanqie:1, qimao:0} —— 每平台最多 1 部，界面直接显示"番茄 1/1"
     active: d.active || {},
-    // 今天还能写多少字（每天 1 万字）
+    // 按平台拆开的今日用量：{fanqie:{chapters,words}, qimao:{...}}
+    byPlatform: usage.byPlatform || {},
+    // 今天还能写多少字（共享档=两平台合计；VIP=当前平台那一份，由页面按 platform 取）
     wordsLeft: Math.max(0, (limits.dailyWords || 0) - (usage.words || 0)),
     // 游客/低等级不给调每章字数，界面据此隐藏输入框并给出说明
     canEditWords: limits.chapterWordsEditable !== false,

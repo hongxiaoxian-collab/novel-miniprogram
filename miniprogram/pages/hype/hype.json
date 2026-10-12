@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "爽点卡",
+  "usingComponents": {
+    "ai-note": "/components/ai-note/ai-note"
+  }
+}

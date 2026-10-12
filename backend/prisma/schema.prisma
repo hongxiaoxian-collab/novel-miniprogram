@@ -82,6 +82,8 @@ model Novel {
   outline       String?  // 大纲文本
   bible         String?  // JSON：全书脉络（故事圣经）完整结构
   bibleStatus   String   @default("none") // none | generating | done | failed
+  hypeJson      String?  // JSON：爽点卡（M18 会诊结论：核心爽点/双引擎/疲劳陷阱/按卷锚点/30条存货）
+  hypeStatus    String   @default("none") // none | generating | done | failed
   chapterWords  Int      @default(2000) // 每章目标字数（用户可改，默认 2000）
   // ---- 定版任务（异步，前端轮询进度）----
   taskStage     String?  // running | done | failed（空闲为 null）
@@ -169,6 +171,13 @@ model Chapter {
   summary   String?  // 滚动摘要（带入下章防断链）
   canon     String?  // JSON：本章更新的事实台账（增量，合并进 Novel.canon）
   stale     Boolean  @default(false) // 大纲/设定已变更 → 旧章节作废（不删数据，仅隐藏，避免两套设定混装）
+  /**
+   * 开书初始化自带的章节（一键开书写黄金三章）标记为 true：**不占当日日更额度**。
+   * 开书本身已有"每天最多新开 1 本"的独立闸门，如果这三章再吃掉日更额度，
+   * 作者开完书当天就写不动了 —— 免费版（2 章/天）更是开完书直接被锁死。
+   * 定版/撞车修复重写的黄金三章仍按 false 计，避免靠反复定版白嫖正文。
+   */
+  quotaFree Boolean  @default(false)
   status    String   @default("draft") // draft | done
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

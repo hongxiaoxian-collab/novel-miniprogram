@@ -56,3 +56,6 @@ backend/.tmp-split/
 
 # 会话临时留底（给用户看的预览图等）
 .workbuddy/tmp/
+
+# 配额单测临时编译产物
+backend/.tmp-quota/

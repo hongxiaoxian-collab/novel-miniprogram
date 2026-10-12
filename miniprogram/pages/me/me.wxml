@@ -32,15 +32,23 @@
       </view>
       <view class="row">
         <text class="k">作品数</text>
-        <text class="v">{{acct.novels}} / {{acct.maxNovels}} 本</text>
+        <text class="v">{{acct.unlimited ? (acct.novels + ' 本（不限量）') : (acct.novels + ' / ' + acct.maxNovels + ' 本')}}</text>
       </view>
       <view class="row">
-        <text class="k">今日生成</text>
+        <text class="k">{{acct.perPlatform ? '今日生成（各平台独立）' : '今日生成（两平台合计）'}}</text>
         <text class="v">{{acct.chapters}} 章 · {{acct.words}} 字</text>
       </view>
       <view class="row">
-        <text class="k">今日上限</text>
-        <text class="v">{{acct.dailyChapters}} 章 · {{acct.dailyWords}} 字</text>
+        <text class="k">{{acct.perPlatform ? '每平台每天上限' : '每天上限'}}</text>
+        <text class="v">{{acct.unlimited ? '不限量' : (acct.dailyChapters + ' 章 · ' + acct.dailyWords + ' 字')}}</text>
+      </view>
+      <view class="row" wx:if="{{acct.perPlatform}}">
+        <text class="k">番茄今日</text>
+        <text class="v">{{(acct.byPlatform && acct.byPlatform.fanqie ? acct.byPlatform.fanqie.chapters : 0)}} 章 · {{(acct.byPlatform && acct.byPlatform.fanqie ? acct.byPlatform.fanqie.words : 0)}} 字</text>
+      </view>
+      <view class="row" wx:if="{{acct.perPlatform}}">
+        <text class="k">七猫今日</text>
+        <text class="v">{{(acct.byPlatform && acct.byPlatform.qimao ? acct.byPlatform.qimao.chapters : 0)}} 章 · {{(acct.byPlatform && acct.byPlatform.qimao ? acct.byPlatform.qimao.words : 0)}} 字</text>
       </view>
       <view class="row">
         <text class="k">每章字数</text>
@@ -56,7 +64,8 @@
     <view class="card" wx:if="{{acct.planCode !== 'vip'}}">
       <view class="card-h">👑 升级 VIP 版</view>
       <view class="muted tip">
-        50 部作品 · 每天 50 章 · 每章最高 8000 字 · 全书重审 · 更强的 AI 档位
+        番茄 · 七猫各 1 部在写 · **每个平台**每天 4 章 / 1 万字（免费版两平台合计只有 2 章 / 4000 字）·
+        每章最高 2500 字 · 全书重审 · 更强的 AI 档位
       </view>
       <block wx:if="{{pay && pay.goods && pay.goods.length}}">
         <view wx:for="{{pay.goods}}" wx:key="planCode" class="goods">

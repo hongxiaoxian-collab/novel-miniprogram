@@ -3,7 +3,7 @@
 <!-- ① 默认平台：番茄。可切七猫，两个平台各能有一部在写 -->
 <view class="card">
   <view class="card-h">① 先定投稿平台</view>
-  <view class="muted">默认已帮你选好「番茄」。番茄和七猫各能同时有 1 部在写的作品，每天最多写 1 万字（约 4 章）。</view>
+  <view class="muted">默认已帮你选好「番茄」。番茄和七猫各能同时有 1 部在写的作品。配额：免费版两平台合计每天 2 章 / 4000 字，VIP 则每个平台各 4 章 / 1 万字。</view>
   <view class="tagrow" style="margin-top:16rpx">
     <view class="chip {{platform==='fanqie'?'on':''}}" data-p="fanqie" bindtap="pickPlatform">番茄</view>
     <view class="chip blue {{platform==='qimao'?'on':''}}" data-p="qimao" bindtap="pickPlatform">七猫</view>

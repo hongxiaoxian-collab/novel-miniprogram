@@ -1167,6 +1167,7 @@ Page({
   copy(e) { copy(e.currentTarget.dataset.text); },
   goBible() { wx.navigateTo({ url: `/pages/bible/bible?id=${this.data.id}` }); },
   goChapters() { wx.navigateTo({ url: `/pages/chapter/chapter?id=${this.data.id}&openDir=1` }); },
+  goHype() { wx.navigateTo({ url: `/pages/hype/hype?id=${this.data.id}` }); },
   /** 没有全书脉络时，回到向导第④步补生成大纲（否则章节页无内容可写） */
   goWizardOutline() { wx.navigateTo({ url: `/pages/wizard/wizard?id=${this.data.id}&step=4` }); },
   goWrite() {

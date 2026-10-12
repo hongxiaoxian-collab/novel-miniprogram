@@ -8,7 +8,8 @@
     "pages/bible/bible",
     "pages/chapter/chapter",
     "pages/bot/bot",
-    "pages/me/me"
+    "pages/me/me",
+    "pages/hype/hype"
   ],
   "__usePrivacyCheck__": true,
   "window": {

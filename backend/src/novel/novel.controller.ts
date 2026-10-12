@@ -218,6 +218,18 @@ export class NovelController {
     return this.svc.getProgress(id);
   }
 
+  /** 读爽点卡（M18 会诊结论：核心爽点 / 双引擎 / 疲劳陷阱 / 按卷锚点 / 30 条存货） */
+  @Get(':id/hype')
+  hype(@Param('id') id: string) {
+    return this.svc.getHype(id);
+  }
+
+  /** 重跑爽点会诊（大纲改了之后必须重跑，否则爽点还挂在旧卷上） */
+  @Post(':id/hype')
+  rebuildHype(@Param('id') id: string) {
+    return this.svc.buildHypeCard(id);
+  }
+
   /**
    * 【被平台拒了】登记驳回原因（原文留存 + AI 总结，作为后续改进的原始数据），
    * 该作品转「被拒」，立刻腾出这个平台的在写名额，然后可点 /restart 自动重开一本。

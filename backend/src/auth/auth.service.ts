@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { signToken } from './token';
 import { encryptSecret } from './secret';
 import { GUEST_PLAN, limitsFor, publicPlans, resolvePlan } from './plan';
+import { usageToday } from './quota';
 
 /**
  * 微信登录与账号管理。
@@ -16,6 +17,25 @@ import { GUEST_PLAN, limitsFor, publicPlans, resolvePlan } from './plan';
 
 const APPID = () => process.env.WX_APPID || '';
 const SECRET = () => process.env.WX_APP_SECRET || '';
+
+/** 业主白名单：这些人恒为 VIP（作者自己的账号）。逗号分隔的 openid 列表 */
+const ownerOpenids = (): string[] =>
+  String(process.env.VIP_OPENIDS || '')
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+/**
+ * 新账号的默认等级。运营期可设成 vip 让试用的人拿到完整体验；
+ * 正式对外前**必须改回 free**（或直接删掉这个变量），否则人人都是 VIP。
+ */
+const defaultLevel = (): string => {
+  const v = String(process.env.DEFAULT_LEVEL || 'free').trim().toLowerCase();
+  return v === 'vip' ? 'vip' : 'free';
+};
+
+/** VIP 白名单的到期时间：给一个足够远的日期，等价于"永久"。不能用 null —— null 会被判成已过期 */
+const farFuture = (): Date => new Date('2099-12-31T23:59:59Z');
 
 @Injectable()
 export class AuthService {
@@ -54,10 +74,29 @@ export class AuthService {
     // session_key 是虚拟支付下单签名的必需品（wx.requestVirtualPayment 的 signature 用它算 HMAC），
     // 不存下来就只能让用户重新登录才能付款。加密落库，不进日志、不出任何接口。
     const sk = d.session_key ? encryptSecret(d.session_key) : undefined;
+    // 等级：
+    // - VIP_OPENIDS 里点名的账号（就是作者自己）永远 VIP，不受任何开关影响；
+    // - 新账号按 DEFAULT_LEVEL 建（运营期设成 vip 让试用者拿到完整体验，正式对外前改回 free）。
+    // 作者要求「我自己的账号默认 VIP」，但又不能把所有新用户都变成 VIP —— 所以走白名单 + 开关两条路。
+    const isOwner = ownerOpenids().includes(d.openid);
+    const initLevel = isOwner ? 'vip' : defaultLevel();
     const user = await this.prisma.user.upsert({
       where: { openid: d.openid },
-      create: { openid: d.openid, unionid: d.unionid || null, lastLoginAt: now, sessionKey: sk },
-      update: { lastLoginAt: now, unionid: d.unionid || undefined, ...(sk ? { sessionKey: sk } : {}) },
+      create: {
+        openid: d.openid,
+        unionid: d.unionid || null,
+        lastLoginAt: now,
+        sessionKey: sk,
+        level: initLevel,
+        ...(initLevel === 'vip' ? { vipExpireAt: farFuture() } : {}),
+      },
+      update: {
+        lastLoginAt: now,
+        unionid: d.unionid || undefined,
+        ...(sk ? { sessionKey: sk } : {}),
+        // 白名单里的账号每次登录都自愈回 VIP（配额被误改也兜得住）
+        ...(isOwner ? { level: 'vip', vipExpireAt: farFuture() } : {}),
+      },
     });
 
     // 已注销/封禁的账号不再发凭证
@@ -106,7 +145,7 @@ export class AuthService {
         // 游客没有账号可存，向导进度由前端落本地；这里固定返回"未走过"，前端据此决定是否弹向导
         onboard: { onboarded: false, steps: {}, penName: '' },
         // 游客看到这些提醒，才知道登录能解锁什么（界面上直接展示，不用作者猜）
-        upsell: `登录后免费升到「普通版」：每天 4 章 / 1 万字，番茄·七猫各 1 部在写`,
+        upsell: `登录后免费升到「普通版」：番茄·七猫各 1 部在写，每个平台每天 4 章 / 1 万字`,
       };
     }
     const user = await this.prisma.user.findUnique({ where: { id: uid } });
@@ -238,20 +277,13 @@ export class AuthService {
     return m;
   }
 
-  /** 今日已用额度：按今天新建的章节统计。不额外建表，避免为了计数多一次写库 */
+  /**
+   * 今日已用额度：按今天新建的章节统计。不额外建表，避免为了计数多一次写库。
+   *
+   * 复用 quota.ts 的 usageToday（同一份口径）—— 额度是按平台各算一份的，
+   * 这里必须一并返回 byPlatform，前端作品页才能把「番茄 1/4 章、七猫 0/4 章」分别显示出来。
+   */
   private async usageToday(uid: string | null, guestKey?: string | null) {
-    const since = new Date();
-    since.setHours(0, 0, 0, 0);
-    // 已登录按账号算；游客按匿名标识算 —— 两者互斥，不会双计
-    const owner = uid ? { novel: { userId: uid } } : { novel: { guestKey: guestKey || '__none__' } };
-    const rows = await this.prisma.chapter.findMany({
-      where: { ...owner, createdAt: { gte: since } } as any,
-      select: { content: true },
-    });
-    return {
-      date: since.toISOString().slice(0, 10),
-      chapters: rows.length,
-      words: rows.reduce((s, r) => s + (r.content || '').length, 0),
-    };
+    return usageToday(this.prisma as any, uid, guestKey);
   }
 }

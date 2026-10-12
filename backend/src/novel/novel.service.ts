@@ -22,6 +22,9 @@ import {
   composeCover, scenePromptOf, wrapCoverPrompt, coverSubtitle, cleanScene, fallbackScene,
   normalizeCoverLines, titleNeedsAiSplit, coverLinesPrompt, CoverMeta,
 } from './cover-image';
+import {
+  hypeBriefForChapter, normalizeHype, parseHype, thrillPrompt, HypeCard,
+} from './thrill';
 import { PLATFORMS, getPlatform, tagWhitelist } from '../platform/platform.config';
 import {
   CreateNovelDto,
@@ -523,7 +526,7 @@ export class NovelService {
 
   async createNovel(dto: CreateNovelDto, uid?: string | null, guestKey?: string | null) {
     // 配额闸门：只拦"新建"，已有作品永远可编辑 —— 绝不能因为配额把作者锁死在门外
-    const q = await currentQuota(this.prisma as any, uid || null, guestKey);
+    const q = await currentQuota(this.prisma as any, uid || null, guestKey, dto.platform);
     const deny = checkNovelLimit(q) || checkPlatformSlot(q, dto.platform);
     if (deny) throw new BadRequestException(deny);
 
@@ -559,12 +562,15 @@ export class NovelService {
     const platform = dto.platform || 'fanqie';
     getPlatform(platform); // 平台非法当场抛错，别等生成到一半才炸
 
-    const q = await currentQuota(this.prisma as any, uid || null, guestKey);
+    const q = await currentQuota(this.prisma as any, uid || null, guestKey, platform);
     const deny = checkNovelLimit(q) || checkPlatformSlot(q, platform);
     if (deny) throw new BadRequestException(deny);
-    // 开书成本高（一次性出大纲/脉络/时间线/黄金三章），每天限额；被拒重开不受限
+    // 开书成本高（一次性出大纲/脉络/时间线/黄金三章），每天限额；被拒重开不受限。
+    // 口径跟额度一致：VIP 按平台各 1 本，免费/游客两平台共享 1 本。
     if (!dto.parentId) {
-      const denyDay = await checkNewNovelPerDay(this.prisma as any, uid || null, guestKey || null, q.limits.dailyNewNovels);
+      const denyDay = await checkNewNovelPerDay(
+        this.prisma as any, uid || null, guestKey || null, q.limits.dailyNewNovels, q.perPlatform, platform,
+      );
       if (denyDay) throw new BadRequestException(denyDay);
     }
 
@@ -596,7 +602,60 @@ export class NovelService {
     return { id: novel.id, job: await this.getJob(novel.id) };
   }
 
-  /** 一键开书的任务链：定位 → 大纲 → 脉络+时间线 → 上架资料 → 封面 */
+  /**
+   * 【爽点定位会诊】跑一场 M18 会诊并落库。
+   *
+   * 前置条件：**必须先有《全书脉络》**（分卷时间线）。没有分卷就没法把爽点挂到卷上，
+   * 那样产出的爽点会脱离大纲，写稿时反而把中轴线挤掉。
+   *
+   * 失败一律降级（返回 null / 标记 failed），**绝不抛错** —— 爽点是加分项，
+   * 不能因为它把整条开书链打断（开书的成本已经很高了）。
+   */
+  async buildHypeCard(id: string): Promise<HypeCard | null> {
+    const n: any = await this.getNovel(id);
+    let b: any = {};
+    try { b = JSON.parse(n.bible || '{}'); } catch { b = {}; }
+    const vols: any[] = Array.isArray(b.volumes) ? b.volumes : [];
+    if (!vols.length) return null;
+
+    const set = (data: any) => this.prisma.novel.update({ where: { id }, data } as any).catch(() => {});
+    await set({ hypeStatus: 'generating' });
+    try {
+      const text = await this.ai.chat(
+        thrillPrompt({
+          title: n.title, platform: n.platform, genre: n.genre,
+          targetReader: n.targetReader, sellPoint: n.sellPoint, outline: n.outline,
+        }, vols),
+        180000,
+      );
+      const parsed = tryParseJson(text, ['core'])
+        || tryParseJson(text, ['核心爽点'])
+        || tryParseJson(text, ['opening'])
+        || null;
+      const card = normalizeHype(parsed);
+      if (!card) {
+        await set({ hypeStatus: 'failed' });
+        return null;
+      }
+      await set({ hypeJson: JSON.stringify(card), hypeStatus: 'done' });
+      return card;
+    } catch {
+      await set({ hypeStatus: 'failed' });
+      return null;
+    }
+  }
+
+  /** 读爽点卡（给作品页展示） */
+  async getHype(id: string) {
+    const n: any = await this.getNovel(id);
+    return {
+      status: n.hypeStatus || 'none',
+      card: parseHype(n.hypeJson),
+      title: n.title,
+    };
+  }
+
+  /** 一键开书的任务链：定位 → 大纲 → 脉络+时间线 → 爽点会诊 → 上架资料 → 黄金三章 → 封面 */
   private async startQuickJob(id: string, dto: QuickStartDto) {
     return this.startJob(id, 'quick', [
       {
@@ -657,6 +716,17 @@ export class NovelService {
             data: { timeline: timeline || null, bibleStatus: 'done' } as any,
           });
           return timeline ? `时间线 ${vols.length} 卷已生成` : '全书脉络已生成';
+        },
+      },
+      {
+        // 爽点会诊**必须排在大纲与全书脉络之后**：爽点要挂在大纲的卷上，
+        // 先定爽点再排剧情会让中轴线被爽点挤掉（作者 2026-10-12 明确要求「爽点按大纲走」）。
+        key: 'thrill',
+        label: '爽点定位会诊（核心爽点 / 双引擎 / 按卷锚点 / 30 条存货）',
+        run: async () => {
+          const card = await this.buildHypeCard(id);
+          if (!card) return '爽点会诊没产出合格结论（可稍后在作品页重跑），不影响写稿';
+          return `核心爽点：${card.core}｜存货 ${card.stock.length} 条`;
         },
       },
       {
@@ -891,13 +961,13 @@ ${kind === 'passed' ? '作者的说明' : '平台驳回原话'}：${reason}
     // 转回「在写」同样要占名额：每个平台最多 1 部在写。
     // 不在这个口子卡的话，"把被拒/归档的作品改回在写"就能绕过新架构的硬约束。
     if ((dto as any).status === 'writing' && before.status !== 'writing') {
-      const q = await currentQuota(this.prisma as any, before.userId || null, before.guestKey || null);
+      const q = await currentQuota(this.prisma as any, before.userId || null, before.guestKey || null, before.platform);
       const slot = checkPlatformSlot(q, before.platform);
       if (slot) throw new BadRequestException(slot);
     }
     if ((dto as any).chapterWords != null) {
       const want = Number((dto as any).chapterWords);
-      const q = await currentQuota(this.prisma as any, before.userId || null, before.guestKey || null);
+      const q = await currentQuota(this.prisma as any, before.userId || null, before.guestKey || null, before.platform);
       if (!q.limits.chapterWordsEditable) {
         if (want !== q.limits.wordPerChapter) {
           throw new BadRequestException(
@@ -2263,13 +2333,16 @@ ${ANTI_CLASH_RULE}
 
     // 连写多章时在入口一次查清总数：不然后面写到第 4 章才发现超标，前三章的额度已经烧掉了。
     // 额度按"这部作品挂在谁名下"算 —— 内部流程（定版写黄金三章等）因此自动受限，不用层层传身份。
-    const owner = await this.getNovel(id);
-    const q0 = await currentQuota(this.prisma as any, (owner as any).userId || null, (owner as any).guestKey || null);
-    const deny0 = checkChapterLimit(q0, n);
+    const owner: any = await this.getNovel(id);
+    // 额度按平台各算一份：写七猫的章节只能吃七猫的额度，绝不能去扣番茄那 1 万字
+    const q0 = await currentQuota(
+      this.prisma as any, owner.userId || null, owner.guestKey || null, owner.platform,
+    );
+    const deny0 = checkChapterLimit(q0, n, owner.platform);
     if (deny0) throw new BadRequestException(deny0);
-    // 每天 1 万字：连写 N 章时按"预估字数"一次算清，别写到第 4 章才发现今天额度早烧完了
-    const perWords = Number(wordCount) || (owner as any).chapterWords || 2000;
-    const denyW = checkWordLimit(q0, perWords * n);
+    // 每个平台每天 1 万字：连写 N 章时按"预估字数"一次算清，别写到第 4 章才发现额度早烧完了
+    const perWords = Number(wordCount) || owner.chapterWords || 2000;
+    const denyW = checkWordLimit(q0, perWords * n, owner.platform);
     if (denyW) throw new BadRequestException(denyW);
 
     const chapters = await this.prisma.chapter.findMany({
@@ -4523,11 +4596,13 @@ figure.pose: hold(手拿道具) | walk(侧身走动) | look(回望)
 
     // 今日章节额度：连写时每章进来都会查一次，累计自然收敛，不会超发。
     // 按作品归属算，不按请求头 —— 定版写黄金三章这类内部流程也就自动受限了。
+    // 额度按平台各算一份（番茄 4 章/1 万字，七猫同样），所以必须带上作品的 platform。
     if (!opts.skipQuota) {
-      const q = await currentQuota(this.prisma as any, (n as any).userId || null, (n as any).guestKey || null);
-      const deny = checkChapterLimit(q, 1);
+      const plat = (n as any).platform;
+      const q = await currentQuota(this.prisma as any, (n as any).userId || null, (n as any).guestKey || null, plat);
+      const deny = checkChapterLimit(q, 1, plat);
       if (deny) throw new BadRequestException(deny);
-      const denyW = checkWordLimit(q, Number((dto as any).wordCount) || (n as any).chapterWords || 2000);
+      const denyW = checkWordLimit(q, Number((dto as any).wordCount) || (n as any).chapterWords || 2000, plat);
       if (denyW) throw new BadRequestException(denyW);
     }
 
@@ -4545,6 +4620,8 @@ figure.pose: hold(手拿道具) | walk(侧身走动) | look(回望)
     const last = chapters[chapters.length - 1];
     const volume = dto.volume ?? (last ? last.volume : 1);
     const order = dto.order ?? (last ? last.order + 1 : 1);
+    // 爽点卡（没有就整块不注入，写稿退回原来只靠中轴线的写法，不影响出稿）
+    const hype = parseHype((n as any).hypeJson);
 
     const dir = chapters.map((c) => `第${c.order}章 ${stripChapterNo(c.title)}`).join(' / ') || '（暂无）';
     // 只带「上一章」会让跨章伏笔断线，带最近三章摘要衔接更稳
@@ -4565,6 +4642,8 @@ ${renderCanon(canon, charListOf(bible, n.protagonists))}
 === 中轴线定位（大纲 + 分卷时间线；本章必须顺着它写，禁止另起炉灶）===
 ${axisOf(bible, order)}
 ${modeLockOf(bible)}
+
+${hypeBriefForChapter(hype, order, volume)}
 
 【已有章节目录】${dir}
 【最近三章摘要】
@@ -4602,6 +4681,9 @@ ${PASS_GATE_RULE}
       data: {
         novelId: id, volume, order, title, content, summary,
         canon: newCanon ? JSON.stringify(newCanon) : null,
+        // 开书初始化章节不占当日日更额度（见 schema 里 quotaFree 的说明）。
+        // 只有一键开书那条链传 skipQuota；定版/撞车修复重写的黄金三章照常计额度。
+        quotaFree: !!opts.skipQuota,
         status: 'done',
       } as any,
     });

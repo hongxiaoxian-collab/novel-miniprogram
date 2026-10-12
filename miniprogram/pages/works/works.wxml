@@ -10,7 +10,9 @@
     <text class="acct-plan" wx:if="{{acct}}">{{acct.planName}}</text>
   </view>
   <view class="acct-r">
-    <text class="acct-quota" wx:if="{{acct}}">今日 {{acct.words}}/{{acct.dailyWords}} 字 · {{acct.chapters}}/{{acct.dailyChapters}} 章</text>
+    <!-- 额度口径跟后端一致：免费/游客是两平台合计，VIP 是当前平台那一份；作者本人不限量 -->
+    <text class="acct-quota" wx:if="{{acct && acct.unlimited}}">额度不限量</text>
+    <text class="acct-quota" wx:elif="{{acct}}">今日 {{today.words}}/{{today.dailyWords}} 字 · {{today.chapters}}/{{today.dailyChapters}} 章 {{today.shared ? '(合计)' : '(各平台)'}}</text>
     <view wx:if="{{acct && !acct.loggedIn}}" class="acct-btn" bindtap="onLogin">登录</view>
   </view>
 </view>
@@ -21,7 +23,8 @@
 <view class="card">
   <view class="row">
     <view class="card-h">📚 在写（{{platform==='qimao'?'七猫':'番茄'}}）</view>
-    <view class="muted">{{(acct && acct.active && acct.active[platform]) || 0}}/{{acct ? acct.activePerPlatform : 1}} 部</view>
+    <view class="muted" wx:if="{{acct && acct.unlimited}}">{{(acct && acct.active && acct.active[platform]) || 0}} 部在写</view>
+    <view class="muted" wx:else>{{(acct && acct.active && acct.active[platform]) || 0}}/{{acct ? acct.activePerPlatform : 1}} 部</view>
   </view>
   <block wx:for="{{novels}}" wx:key="id">
     <view class="card" style="margin-top:16rpx" bindtap="goIntro" data-nov="{{item}}">
@@ -33,7 +36,17 @@
     </view>
   </block>
   <view wx:if="{{novels.length===0}}" class="muted" style="text-align:center;padding:20rpx">这个平台还没有在写的作品，点下面新建</view>
-  <view class="btn" wx:if="{{novels.length===0}}" bindtap="goWizard">＋ 新建小说</view>
+  <!-- 点一下就自己建立：书名 / 大纲 / 时间线 / 简介 / 主角 / 标签 / 封面 全自动，两个平台一致 -->
+  <view class="btn" wx:if="{{novels.length===0}}" bindtap="newNovel">
+    🚀 新建小说（AI 自动建立）
+  </view>
+  <view wx:if="{{novels.length===0}}" class="muted" style="text-align:center;margin-top:10rpx;line-height:1.7">
+    点一下就开始：起书名 → 男频/女频 → 题材 → 大纲 → 分卷时间线 → 作品简介 →
+    主角 → 签约模式（默认未签约）→ 阅读标签 / 内容标签 → 黄金 1-3 章 → 封面。
+  </view>
+  <view wx:if="{{novels.length===0}}" class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="goManual">
+    ⚙️ 我自己定题材 / 每章字数
+  </view>
   <view wx:else class="muted" style="margin-top:12rpx">同平台最多 1 部在写。这部被平台拒了就去作品页点「被拒」，登记后系统会自动重开一本。</view>
 </view>
 
@@ -70,10 +83,10 @@
   </block>
 </view>
 
-<!-- 重开一本的进度 -->
+<!-- 开书进度（新建 / 被拒重开共用同一根进度条） -->
 <view wx:if="{{busy}}" class="pcard">
   <view class="pcard-h">
-    <text class="pcard-t">🔁 被拒重开一本</text>
+    <text class="pcard-t">{{prog.title || '正在建立'}}</text>
     <text class="pcard-n">{{prog.done}}/{{prog.total}}</text>
   </view>
   <view class="pbar"><view class="pbar-in {{platform==='qimao'?'blue':''}}" style="width:{{prog.pct}}%"></view></view>

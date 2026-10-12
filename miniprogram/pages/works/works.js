@@ -21,6 +21,7 @@ Page({
     acct: null,
     prog: { show: false, pct: 0, done: 0, total: 0, current: '', steps: [], stage: '' },
     busy: false,
+    today: { chapters: 0, words: 0, dailyChapters: 0, dailyWords: 0, shared: false }, // 今日额度（按当前平台口径）
   },
   onShow() {
     this.setData({ platform: app.globalData.platform, pen: getPen() });
@@ -28,11 +29,38 @@ Page({
     this.loadAccount();
     this.aiNotice();
   },
+  /**
+   * 今日额度展示口径：跟后端 quotaScope 一致 ——
+   * 共享档（免费/游客）看**两平台合计**；VIP 只看**当前平台**那一份。
+   * 不能写死"每天 1 万字"，否则免费版会看到"还能写 10000 字"却写两章就被拦。
+   */
+  quotaLine() {
+    const a = this.data.acct;
+    if (!a) return { chapters: 0, words: 0, dailyChapters: 0, dailyWords: 0, shared: false };
+    const by = a.byPlatform || {};
+    let chapters = 0;
+    let words = 0;
+    if (a.perPlatform) {
+      const cur = by[this.data.platform] || { chapters: 0, words: 0 };
+      chapters = cur.chapters || 0;
+      words = cur.words || 0;
+    } else {
+      Object.keys(by).forEach((k) => {
+        chapters += (by[k] && by[k].chapters) || 0;
+        words += (by[k] && by[k].words) || 0;
+      });
+    }
+    return {
+      chapters, words, shared: !a.perPlatform,
+      dailyChapters: a.dailyChapters, dailyWords: a.dailyWords,
+    };
+  },
   /** 顶部账号条：登录态 + 当前等级 + 作品数。以前登录是"隐形"的，作者根本看不到自己登没登 */
   async loadAccount() {
     try {
       const acct = await loadMe();
       this.setData({ acct });
+      this.setData({ today: this.quotaLine() });
       // 【新架构】首次进入强制走开书向导：下载 App → 注册 → 实名 → 笔名 → 未签约 → 一键开书。
       // 登录用户以后端为准（换手机也只走一次）；游客看本地，避免每次进来都被拦。
       const remote = acct && acct.onboard && acct.onboard.onboarded;
@@ -87,6 +115,7 @@ Page({
       frontColor: '#ffffff',
       backgroundColor: e.detail.platform === 'qimao' ? '#2b6cff' : '#07c160',
     });
+    this.setData({ today: this.quotaLine() }); // 切平台 → 今日额度也跟着换一份口径
     this.loadNovels();
   },
   /** 全局笔名：只在这里确认一次，之后建作品 / 生成封面自动带上 */
@@ -132,6 +161,101 @@ Page({
   },
 
   /**
+   * 【新建小说 = 点一下就自己建立】
+   *
+   * 两个平台行为完全一致（作者要求七猫和番茄一样）：作者只点一下，剩下全自动 ——
+   * 书名 → 卖点 → 男频/女频 → 题材 → 大纲 → 全书脉络 + 分卷时间线 → 作品简介 →
+   * 主角 → 签约模式（默认未签约）→ 阅读标签 / 内容标签 → 黄金三章 → 封面。
+   *
+   * 为什么不再走「选题材→选读者→选签约→填字数」那四步手填向导：
+   * 那套流程要作者填完四页才看到第一个字，跟"新建小说就自己开始建立"是两回事。
+   * 手填那套没删，降级成下面「我自己定题材 / 每章字数」的次级入口，给想控盘的人用。
+   */
+  async newNovel() {
+    if (this.data.busy) return;
+    // 每个平台最多 1 部在写：已有就直接说明，别让作者等到后端回一句"超限"
+    if ((this.data.novels || []).length > 0) {
+      wx.showToast({
+        title: `${this.data.platform === 'qimao' ? '七猫' : '番茄'}已有一部在写；被拒了就点「被拒」，系统会自动重开一本`,
+        icon: 'none', duration: 3000,
+      });
+      return;
+    }
+    // 封面硬性要求「书名 + 笔名」：笔名没定就先定这一次，定了就直接开跑（其余一律不问）
+    let pen = getPen();
+    if (!pen) {
+      pen = await this.askPen();
+      if (!pen) return; // 作者取消，什么都不建
+    }
+    await this.runQuick('🚀 AI 自动建书', '/novel/quick-start', {
+      platform: this.data.platform,
+      penName: pen,
+    });
+  },
+
+  /** 笔名没定过时问一次（封面必须带笔名，这是平台要求，不是我们的偏好） */
+  askPen() {
+    return new Promise((resolve) => {
+      wx.showModal({
+        title: '先定一个笔名',
+        content: '番茄和七猫都要求封面出现「书名 + 笔名」。这里定一次，以后所有作品自动带上。',
+        editable: true,
+        placeholderText: '例如：青山不改',
+        confirmText: '开始建书',
+        cancelText: '取消',
+        success: (r) => {
+          if (!r.confirm) { resolve(''); return; }
+          const v = String(r.content || '').trim();
+          if (!v) { wx.showToast({ title: '笔名不能为空', icon: 'none' }); resolve(''); return; }
+          this.setData({ pen: setPen(v) });
+          app.globalData.penName = v;
+          resolve(v);
+        },
+        fail: () => resolve(''),
+      });
+    });
+  },
+
+  /**
+   * 跑一条「开书」任务链：起任务 → 盯进度 → 跑完进作品页。新建 / 被拒重开共用。
+   * 逐章生成 + 出图要跑好几分钟，作者中途退出也不会丢（任务落库，回来接着看）。
+   */
+  async runQuick(title, url, body) {
+    if (this.data.busy) return;
+    this.setData({ busy: true, prog: progOf(title, { steps: [], stage: 'running' }) });
+    wx.showLoading({ title: 'AI 正在建立…', mask: true });
+    let id = '';
+    try {
+      const r = await request(url, 'POST', body || {});
+      id = r.id;
+      app.globalData.novelId = id;
+      wx.hideLoading();
+      await waitJob(id, (p) => this.setData({ prog: progOf(title, p) }), 30 * 60 * 1000);
+      this.setData({ prog: { show: false, steps: [] } });
+      wx.showToast({ title: '已建好一本', icon: 'success' });
+      this.loadNovels();
+      this.loadAccount();
+      wx.navigateTo({ url: `/pages/intro/intro?id=${id}` });
+    } catch (err) {
+      wx.hideLoading();
+      const msg = (err && err.message) || '建立失败';
+      const failed = (this.data.prog.steps || []).filter((s) => s.status === 'failed');
+      // 进度卡会随 busy 一起消失，所以失败详情必须弹出来，不能只留一句 toast
+      // （作者要知道卡在哪一步；任务本身在后台继续，回列表能看到那本书接着生成）
+      const detail = failed.length
+        ? failed.map((s) => `${s.label}：${s.error || ''}`).join('\n')
+        : msg;
+      wx.showModal({
+        title: '自动建书没跑完',
+        content: `${detail}\n\n任务在后台还会继续；稍后回列表点这本书就能看到进度。`,
+        showCancel: false,
+        confirmText: '知道了',
+      });
+    }
+    this.setData({ busy: false });
+  },
+
+  /**
    * 【被拒了 → 自动重开一本】
    * 旧作品保留（带着驳回原因当样本），该平台名额腾出后立刻开一本新的，
    * AI 会拿到"上一部为什么被拒"，强制换方向，而不是只换个书名重写一遍。
@@ -150,28 +274,14 @@ Page({
       });
     });
     if (!res) return;
-    this.setData({ busy: true, prog: progOf('被拒重开一本', { steps: [], stage: 'running' }) });
-    wx.showLoading({ title: '正在开新书…', mask: true });
-    try {
-      const r = await request(`/novel/${id}/restart`, 'POST', {});
-      app.globalData.novelId = r.id;
-      wx.hideLoading();
-      await waitJob(r.id, (p) => this.setData({ prog: progOf('被拒重开一本', p) }), 20 * 60 * 1000);
-      wx.showToast({ title: '新书已开好', icon: 'success' });
-      this.setData({ prog: { show: false, steps: [] } });
-      this.loadNovels();
-      wx.navigateTo({ url: `/pages/intro/intro?id=${r.id}` });
-    } catch (err) {
-      wx.hideLoading();
-      wx.showToast({ title: ((err && err.message) || '开新书失败').slice(0, 30), icon: 'none', duration: 3000 });
-    }
-    this.setData({ busy: false });
+    await this.runQuick('🔁 被拒重开一本', `/novel/${id}/restart`, {});
   },
 
-  // 新建小说 = 全新一本：带 fresh=1 进去，向导页不会再恢复上一部作品的草稿
-  // （以前不带参数，进去会自动恢复上次没走完的进度，作者点"新建"却看到旧小说，以为删不掉）
-  goWizard() {
-    // 同平台最多 1 部在写：已有就直接说明，别让作者点进去填半天才被后端一句"超限"打回
+  /**
+   * 【精细模式】自己定题材 / 目标读者 / 签约 / 每章字数，再让 AI 扫榜给 3-5 个方案挑一本。
+   * 默认入口已经是"点一下就自动建立"，这条路留给想控盘的作者。
+   */
+  goManual() {
     if ((this.data.novels || []).length > 0) {
       wx.showToast({
         title: '同平台最多 1 部在写。这部被拒就去作品页点「被拒」，会自动重开一本',
@@ -179,6 +289,8 @@ Page({
       });
       return;
     }
+    // fresh=1：全新一本，向导页不会恢复上一部作品的草稿
+    // （以前不带参数会恢复上次没走完的进度，作者点"新建"却看到旧小说，以为删不掉）
     wx.navigateTo({ url: '/pages/wizard/wizard?fresh=1' });
   },
   goOnboard() { wx.navigateTo({ url: '/pages/onboard/onboard' }); },

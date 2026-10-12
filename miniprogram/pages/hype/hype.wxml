@@ -1,0 +1,83 @@
+<ai-note text="本页的爽点卡由人工智能（AI）生成，仅供参考，作者可自行修改。" />
+
+<view wx:if="{{status==='none'}}" class="card">
+  <view class="muted" style="text-align:center;padding:40rpx">
+    还没有爽点卡。开书时会在大纲生成后自动会诊一次；也可以现在手动跑一场。
+  </view>
+  <view class="btn" wx:if="{{!busy}}" bindtap="rebuild">🎯 现在跑一场爽点会诊</view>
+</view>
+
+<view wx:if="{{status==='failed'}}" class="card">
+  <view class="muted" style="text-align:center;padding:30rpx">
+    上次会诊没产出合格结论（AI 给的答案不合格，比如核心爽点只写了「打脸」这种空词）。
+    不影响写稿，但建议重跑一次。
+  </view>
+  <view class="btn" wx:if="{{!busy}}" bindtap="rebuild">🔁 重跑会诊</view>
+</view>
+
+<view wx:if="{{card}}">
+  <!-- 核心爽点：整本书追读的发动机 -->
+  <view class="card" style="border-left:8rpx solid #ffb300">
+    <view class="card-h">🎯 核心爽点（读者心里那句话）</view>
+    <view style="font-size:32rpx;font-weight:700;line-height:1.6">{{card.core}}</view>
+  </view>
+
+  <view class="card">
+    <view class="card-h">⚙️ 双引擎（只给一个 = 不合格）</view>
+    <view class="row"><text class="k">引擎 A</text><text class="v">每 3000 字给一点的日常供能</text></view>
+    <view class="muted" style="margin:6rpx 0 12rpx">{{card.engineA}}</view>
+    <view class="row"><text class="k">引擎 B</text><text class="v">每 3-5 万字爆一次的大爆发</text></view>
+    <view class="muted" style="margin:6rpx 0 0">{{card.engineB}}</view>
+  </view>
+
+  <view class="card">
+    <view class="card-h">📌 全书三处关键兑现</view>
+    <view class="muted">开局（前 3 章）：{{card.opening || '（未给）'}}</view>
+    <view class="muted" style="margin-top:8rpx">中期翻新：{{card.midRefresh || '（未给）'}}</view>
+    <view class="muted" style="margin-top:8rpx">爆发期顶点：{{card.climax || '（未给）'}}</view>
+  </view>
+
+  <!-- 按卷锚点：爽点挂在大纲的卷上，写稿时按本章所在卷注入 -->
+  <view class="card" wx:if="{{card.perVolume.length}}">
+    <view class="card-h">🗂 按卷爽点锚点（写稿按本章所在卷取）</view>
+    <view class="tl" wx:for="{{card.perVolume}}" wx:key="v">
+      <view class="tl-left"><view class="tl-no">卷{{item.v}}</view></view>
+      <view class="tl-body">
+        <view class="tl-name">{{item.name}}</view>
+        <view class="tl-event" wx:if="{{item.anchor}}">★ {{item.anchor}}</view>
+        <view class="tl-sub">对象轴 {{item.object}}｜方式轴 {{item.method}}｜代价轴 {{item.cost}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 疲劳陷阱：B 顾问的判据，每条都要能答「爽到第几次开始疲劳」 -->
+  <view class="card" wx:if="{{card.traps.length}}">
+    <view class="card-h">⚠️ 疲劳陷阱（这条能爽到第几次？）</view>
+    <view wx:for="{{card.traps}}" wx:key="name" style="margin-bottom:14rpx">
+      <view style="font-weight:600">{{index + 1}}. {{item.name}}</view>
+      <view class="muted" wx:if="{{item.why}}">撑不住的原因：{{item.why}}</view>
+      <view class="muted" wx:if="{{item.dodge}}">本书规避：{{item.dodge}}</view>
+      <view class="muted" wx:if="{{item.times}}">→ 爽到第 {{item.times}} 次开始疲劳</view>
+    </view>
+  </view>
+
+  <view class="card" wx:if="{{card.avoid.length}}">
+    <view class="card-h">🚫 绝对要避开</view>
+    <view class="muted" wx:for="{{card.avoid}}" wx:key="*this">· {{item}}</view>
+  </view>
+
+  <!-- 30 条存货：用到剩 10 条必须回大纲补货 -->
+  <view class="card">
+    <view class="card-h">📦 爽点存货 {{card.stock.length}} 条</view>
+    <view class="muted" style="margin-bottom:10rpx">
+      写稿时按本章所在卷自动挑 3 条注入，写透 1 条即可。用到剩 10 条必须回大纲补货 ——
+      存货见底是「写着写着不知道写什么」的头号原因。
+    </view>
+    <view wx:for="{{card.stock}}" wx:key="s" style="margin-bottom:8rpx">
+      <text style="color:#8a6d00;font-weight:600">卷{{item.v}}</text> {{item.s}}
+    </view>
+  </view>
+
+  <view class="btn ghost {{platform==='qimao'?'blue':''}}" wx:if="{{!busy}}" bindtap="rebuild">🔁 重跑会诊（大纲改过必点）</view>
+  <view class="btn" style="margin-top:14rpx" bindtap="goWrite">✍️ 按爽点卡续更一章</view>
+</view>
