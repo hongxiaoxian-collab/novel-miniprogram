@@ -109,7 +109,12 @@ export interface HypeCard {
 const HYPE_VERSION = 1;
 
 function str(v: any, max = 200): string {
-  return String(v ?? '').trim().slice(0, max);
+  return String(v ?? '')
+    .trim()
+    // 模型常把提示词里的字数限制原样抄进答案（"…（≤60字）"），作者会看到这种脏尾巴
+    .replace(/[（(]?\s*≤\s*\d+\s*字\s*[）)]?/g, '')
+    .trim()
+    .slice(0, max);
 }
 
 /**
@@ -234,6 +239,9 @@ export function normalizeHype(raw: any): HypeCard | null {
             : { v: Number(x?.v) || 1, s: str(x?.s, 80) })
         .filter((x: HypeStockItem) => x.s)
         .slice(0, 30)
+        // 按卷号排（稳定排序）：模型补货时常把剩下的又写回第 1 卷，
+        // 不排序的话展示会出现两段「第 1 卷」，作者看了会以为重复。
+        .sort((a: HypeStockItem, b: HypeStockItem) => Number(a.v) - Number(b.v))
     : [];
   // 存货少于 10 条：这卡没法支撑全书，直接判不合格
   if (stock.length < 10) return null;
