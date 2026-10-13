@@ -71,6 +71,9 @@ model Novel {
   status        String   @default("writing") // writing(在写) | rejected(被拒) | archived(已归档/完结下架)
   rejectReason  String?  // 平台驳回原因（被拒时作者填/选，重开一本时作为 AI 避坑依据）
   rejectedAt    DateTime?
+  // 归档 = 这部书到此为止，只读：被拒后作者选了「新建一本」，旧作收进归档留档（驳回原因是最值钱的避坑样本），
+  // 但不能再续更/重写/改设定。作者本人（白名单）的书不归档 —— 他要留着反复试。
+  archived      Boolean  @default(false)
   parentId      String?  // 上一部作品的 id（被拒后自动重开的，指向被拒那本）
   autoCreated   Boolean  @default(false) // true = 「被拒后自动重开」生成的，不是作者手动建的
   timeline      String?  // 时间线（自动生成：分卷 × 真实时间锚点 × 关键事件，与大纲分开存便于单独展示）

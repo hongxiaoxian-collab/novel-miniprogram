@@ -138,8 +138,9 @@ export async function currentQuota(
         isGuest: false,
         planName: plan.name,
         limits: limitsFor(user),
-        // 「AI 选题」的占位作品不算一部书（作者还没选定方案），不能占名额
-        novels: await db.novel.count({ where: { userId: uid, planDraft: false } }),
+        // 「AI 选题」的占位作品不算一部书（作者还没选定方案），不能占名额；
+        // 归档的（被拒后选了新建一本）也不算 —— 它只读留档，再占名额普通用户被拒两次就永远开不了新书
+        novels: await db.novel.count({ where: { userId: uid, planDraft: false, archived: false } as any }),
         activeTotal: act.activeTotal,
         active: act.active,
       };
@@ -153,7 +154,7 @@ export async function currentQuota(
       isGuest: true,
       planName: GUEST_PLAN.name,
       limits: GUEST_PLAN.limits,
-      novels: await db.novel.count({ where: { guestKey: key, planDraft: false } }),
+      novels: await db.novel.count({ where: { guestKey: key, planDraft: false, archived: false } as any }),
       activeTotal: a.activeTotal,
       active: a.active,
       upsell: '登录后免费升到「普通版」：番茄、七猫各一部在写，两平台合计每天 2 章 / 4000 字；'

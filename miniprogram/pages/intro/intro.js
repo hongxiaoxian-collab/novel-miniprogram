@@ -3,6 +3,7 @@ const { request } = require('../../utils/request');
 const { copy } = require('../../utils/clipboard');
 const { runFinalize, runningText, waitJob, progOf } = require('../../utils/task');
 const { getPen, setPen, getIntro, setIntro } = require('../../utils/pen');
+const { isOwnerAccount } = require('../../utils/account');
 const coverLib = require('../../utils/cover');
 
 const READ_LABELS = ['主分类', '主题', '角色', '情节'];
@@ -219,12 +220,25 @@ Page({
       this.setData({ rejectShow: false, nov });
       this.loadFeedbacks();
       wx.hideLoading();
+      // 被拒后二选一（作者 2026-10-12 定）：
+      //   ① 新建一本 —— 旧作收进归档（只读，留档当避坑样本），AI 避开这次被拒原因重开一本；
+      //   ② 改编这本 —— 这部接着改（重写章节/改设定都行），改完再投。
+      // 作者本人的书不归档（他要留着反复试），所以给他的是老的两键提示。
+      const owner = await isOwnerAccount();
       wx.showModal({
         title: '已记录',
-        content: '驳回原因已连同这部作品的快照存成原始数据（以后开新书时 AI 会避开这个坑）。\n\n现在要自动重开一本吗？',
-        confirmText: '重开一本',
-        cancelText: '先不改',
-        success: (r) => { if (r.confirm) this.restartNow(); },
+        content: owner
+          ? '驳回原因已连同这部作品的快照存成原始数据（以后开新书时 AI 会避开这个坑）。\n\n现在要自动重开一本吗？'
+          : '驳回原因已连同这部作品的快照存成原始数据（以后开新书时 AI 会避开这个坑）。\n\n'
+            + '接下来怎么办？\n'
+            + '【新建一本】旧作收进归档（只读，留着当避坑样本），AI 避开这次原因重开一本；\n'
+            + '【改编这本】这部接着改：重写章节、改设定都可以，改完再投。',
+        confirmText: owner ? '重开一本' : '新建一本',
+        cancelText: owner ? '先不改' : '改编这本',
+        success: (r) => {
+          if (r.confirm) this.restartNow();
+          else if (!owner) wx.showToast({ title: '好，这部接着改（不会归档）', icon: 'none', duration: 2500 });
+        },
       });
     } catch (e) {
       wx.hideLoading();
@@ -1172,6 +1186,11 @@ Page({
   goWizardOutline() { wx.navigateTo({ url: `/pages/wizard/wizard?id=${this.data.id}&step=4` }); },
   goWrite() {
     const n = this.data.nov || {};
+    // 归档 = 只读：入口直接说明，别让作者点进去才被后端一句"已归档"打回
+    if (n.archived) {
+      wx.showToast({ title: '这部已归档，只能查看，不能更新', icon: 'none', duration: 3000 });
+      return;
+    }
     if (n.bibleStatus !== 'done') {
       wx.showModal({
         title: '还没生成全书脉络',

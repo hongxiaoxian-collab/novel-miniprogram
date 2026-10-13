@@ -231,6 +231,15 @@ export class NovelController {
   }
 
   /**
+   * 【剧情平淡 · 三招救场】强设新目标 / 硬加冲突 / 借鉴飞卢文快节奏，
+   * 每条都是能直接当下一章写作指令的方案。作者点哪条，就把哪条填进续更指令。
+   */
+  @Post(':id/rescue')
+  rescue(@Param('id') id: string, @Body() dto: { situation?: string }) {
+    return this.svc.runRescue(id, dto?.situation);
+  }
+
+  /**
    * 【被平台拒了】登记驳回原因（原文留存 + AI 总结，作为后续改进的原始数据），
    * 该作品转「被拒」，立刻腾出这个平台的在写名额，然后可点 /restart 自动重开一本。
    */

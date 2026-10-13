@@ -41,9 +41,16 @@
     <button class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0 0 0 8rpx" bindtap="next">下一章 →</button>
   </view>
   <view wx:if="{{editing}}" class="btn" bindtap="save">保存修改</view>
-  <view wx:else class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="save">✎ 编辑本章</view>
-  <view class="btn" bindtap="pickNextCount">{{busy && jobText ? '⏳ ' + jobText : '✍️ 续写第 ' + (flat.length + 1) + ' 章（可一次续更 2/3/4 章，每天上限 1 万字）'}}</view>
-  <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="openRewrite">↺ 重写本章（填原因）</view>
+  <view wx:elif="{{!archived}}" class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="save">✎ 编辑本章</view>
+  <!-- 已归档：只读留档，所有写入口收起 -->
+  <view wx:if="{{archived}}" class="card" style="border-left:8rpx solid #999">
+    <view class="card-h">📦 已归档（只读）</view>
+    <view class="muted">这部作品被拒后你选择了新建一本，旧作收进归档留档（驳回原因是最值钱的避坑样本）。归档作品不能续更、不能重写、不能改设定，只能查看和导出。</view>
+  </view>
+  <view wx:if="{{!archived}}" class="btn" bindtap="pickNextCount">{{busy && jobText ? '⏳ ' + jobText : '✍️ 续写第 ' + (flat.length + 1) + ' 章（可一次续更 2/3/4 章，每天上限 1 万字）'}}</view>
+  <!-- 剧情平淡时的三招救场：强设新目标 / 硬加冲突 / 飞卢快节奏 -->
+  <view wx:if="{{!archived}}" class="btn ghost" style="color:#ff5252;border-color:#ff5252" bindtap="openRescue">{{rescueBusy ? '⏳ 会诊中…' : '🚨 救场（剧情平了？三招：新目标 / 硬冲突 / 飞卢节奏）'}}</view>
+  <view wx:if="{{!archived}}" class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="openRewrite">↺ 重写本章（填原因）</view>
   <view class="btn ghost {{platform==='qimao'?'blue':''}}" bindtap="pickAudit">
     {{auditing ? '⏳ 体检中…' : '🩺 一键体检（点这里选：查矛盾 / 查撞车 / 都查）'}}<text wx:if="{{openBadge}}" class="badge">还有 {{openBadge}} 处没修</text>
   </view>
@@ -66,13 +73,34 @@
 </view>
 
 <!-- 重写原因弹窗 -->
-<view wx:if="{{showRewrite}}" class="mask" bindtap="closeRewrite">
-  <view class="sheet" catchtap="noop">
+<view wx:if="{{showRewrite}}" class="mask" bindtap="closeRewrite">  <view class="sheet" catchtap="noop">
     <view class="card-h">重写本章</view>
     <view class="muted" style="margin:8rpx 0">填写重写原因 / 你的意图，AI 据此改写这一章（保留全书脉络一致）。</view>
     <textarea value="{{rewriteReason}}" bindinput="onRewriteReason" auto-height maxlength="-1" placeholder="例如：节奏太慢，男主性格再狠一点，加一段打脸" style="border:2rpx solid #ddd;border-radius:12rpx;padding:16rpx;font-size:28rpx;min-height:200rpx" />
     <view class="btn" bindtap="doRewrite">确定重写</view>
     <view class="btn ghost" bindtap="closeRewrite">取消</view>
+  </view>
+</view>
+
+<!-- 救场三招面板：AI 按本书现出三条可直接当写作指令的方案 -->
+<view wx:if="{{showRescue}}" class="mask" bindtap="closeRescue">
+  <view class="sheet" catchtap="noop">
+    <view class="card-h">🚨 救场三招（按 1→2→3 顺序用）</view>
+    <view class="muted" style="margin:8rpx 0">
+      1 强设新目标（主角没事干了就抬个更高价的新目标）· 2 硬加冲突（让正在推进的事当场失败一次，反派真实得分）
+      · 3 借鉴飞卢快节奏（砍过渡段，三章内连给新地图/新身份/新敌人）。
+    </view>
+    <textarea value="{{rescueSituation}}" bindinput="onRescueSituation" auto-height maxlength="-1" placeholder="可选：你觉得哪里平？（例如：主角连赢三章了 / 不知道写什么了）不填 AI 自己判断" style="border:2rpx solid #ddd;border-radius:12rpx;padding:16rpx;font-size:28rpx;min-height:140rpx" />
+    <view wx:if="{{rescueBusy}}" class="muted" style="text-align:center;padding:24rpx">会诊中，约 20 秒…</view>
+    <block wx:for="{{rescuePlans}}" wx:key="key">
+      <view style="border:2rpx solid #ffd6d6;border-radius:12rpx;padding:16rpx;margin-top:14rpx">
+        <view style="font-weight:700;color:#d32f2f">{{index + 1}}. {{item.name}}</view>
+        <view class="muted" style="margin-top:4rpx">什么时候用：{{item.signal}}</view>
+        <view style="margin-top:6rpx;line-height:1.6">{{item.plan}}</view>
+        <view class="btn ghost" style="color:#ff5252;border-color:#ff5252;margin-top:10rpx" bindtap="useRescue" data-i="{{index}}">✍️ 用这招写下一章</view>
+      </view>
+    </block>
+    <view class="btn ghost" style="margin-top:14rpx" bindtap="closeRescue">取消</view>
   </view>
 </view>
 

@@ -7,12 +7,12 @@ REM ============================================================
 cd /d C:/erp/novel-backend
 echo paused > pause.lock
 schtasks /end /tn NovelBackend >nul 2>&1
-timeout /t 2 /nobreak >nul
+ping -n 3 127.0.0.1 >nul
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3001 ^| findstr LISTENING') do (
   echo killing pid %%a
   taskkill /F /PID %%a >nul 2>&1
 )
-timeout /t 3 /nobreak >nul
+ping -n 4 127.0.0.1 >nul
 netstat -ano | findstr :3001 | findstr LISTENING >nul 2>&1
 if not errorlevel 1 (
   echo PORT-3001-STILL-BUSY

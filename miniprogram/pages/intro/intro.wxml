@@ -45,7 +45,11 @@
     <view class="btn ghost" style="flex:1;margin:0 8rpx 0 0;color:#e64340;border-color:#e64340" bindtap="openReject">❌ 被拒</view>
     <view class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0 0 0 8rpx" bindtap="onPass">✅ 过审</view>
   </view>
-  <view class="muted" style="text-align:center;margin:10rpx 24rpx 0">
+  <!-- 已归档（被拒后选了新建一本）：这部只读留档，平台结论不能再改 -->
+  <view wx:if="{{nov && nov.archived}}" class="muted" style="text-align:center;margin:10rpx 24rpx;color:#999">
+    📦 这部作品已归档：被拒后你选择了新建一本，旧作只读留档（驳回原因是最值钱的避坑样本），不能再更新。
+  </view>
+  <view wx:else class="muted" style="text-align:center;margin:10rpx 24rpx 0">
     平台给结果了就点上面两个：被拒会把驳回原因连同作品快照存成原始数据，过审记成成功样本，都用来改进后面开的书。
   </view>
 

@@ -6,6 +6,7 @@ import {
   currentQuota, checkNovelLimit, checkChapterLimit, checkWordLimit, checkPlatformSlot,
   checkNewNovelPerDay,
 } from '../auth/quota';
+import { isOwner } from '../auth/plan';
 import { AiService } from '../ai/ai.service';
 import { tryParseJson, looseStringField } from '../common/json.util';
 import {
@@ -24,6 +25,7 @@ import {
 } from './cover-image';
 import {
   hypeBriefForChapter, normalizeHype, parseHype, thrillPrompt, HypeCard,
+  rescuePrompt, normalizeRescuePlans,
 } from './thrill';
 import { PLATFORMS, getPlatform, tagWhitelist } from '../platform/platform.config';
 import {
@@ -130,6 +132,55 @@ const GOLDEN_CHAPTERS = [
   '黄金第二章：承接第一章章末钩子立刻兑现第一波爽点，稳住读者；必须有对手当场出手的具体动作（不许只让主角自己盘算）；主线推进一小步，埋下第一个长线伏笔，章末再留钩子。',
   '黄金第三章：第二波爽点升级（打脸/逆袭/获宝/翻身），把主角目标与全书主线对齐；主角受压段落控制在全章 6%-40%（先憋屈再翻盘），章末抛出全书核心悬念，逼读者追更。',
 ];
+
+/** 写作心法：情绪设计 + 网文开篇方法论（注入所有正文生成，开篇章尤其严格） */
+const CRAFT_RULE = `【写作心法·情绪设计与开篇方法论（适用于每一章，开篇章必须严格落地）】
+
+一、开篇即引爆点（第1章铁律）
+- 开头不是铺垫，是全书主线剧情的第一个引爆事件；禁止用世界观介绍、人物背景卡、长篇设定开场。
+- 立情绪债：当众+全程围观+无退路+倒计时，把主角尊严踩到脚底；压得越狠，读者期待翻盘的劲越足。
+- 亮前置底牌：冲突爆发前先告诉读者主角翻盘的底牌（一眼可判强弱：隐藏实力/金手指/人脉/底牌），压迫照旧不削弱，读者从"必死"变"他什么时候动手"。
+- 只压不给底牌=弃书；只给底牌不压=读者不心疼。两者必须同时给足。
+
+二、敌友群三方情绪（一场戏同时跑三条线）
+- 敌方：嘲讽/打压/羞辱/背叛（"受过恩惠的自己人反水"最切齿）。
+- 友方：信任/守护/牺牲（要付出代价，共情才成立）。
+- 群众：路人褒贬并存（有人同情也有人嘲讽，后者是打脸储备）。
+- 三方叠加=把一对一私斗升级成"全世界的态度"，爽感放大约十倍。
+
+三、多线并发·层层递进
+- 每章至少埋 3 条未落地悬念（仇恨/感情/限时危机/人质…），读者读完还挂≥3个惦记。
+- 层层悬念→层层情绪→层层憋屈→层层期待，不断加码。
+
+四、情绪结构层（占八成·决定读者哭不哭/怒不怒）
+写情绪爆发戏之前自检：
+1) 建立在意感：角色有未完成目标/未回应关系/未揭真相，读者才持续关注。
+2) 代价积累：越想守住的失去时越重（时间/尊严/身体/至亲）；前面存多少，兑现时读者感受多少。
+3) 预期→偏离：先立读者预期，再让实际偏离（比预期好=惊喜，比预期差=震惊，反向=困惑）；预期越牢偏离越猛。
+4) 蓄力-释放-喘息：压力加码到临界点→爆发兑现→留一口喘息；一直紧绷读者麻木，一直松弛走神。
+5) 对比放大：甜后更苦、暖后更冷；前面给段温暖，后面打击才不可承受。
+
+五、情绪呈现层（占两成·落点怎么写）
+- 处境先行：先交代局面再写反应，读者理解处境压力才理解反应分量。
+- 四通道只选最准1-2个：身体（手抖/呼吸急/胃里翻搅）、行为（极怒却平静放杯）、对话（说半截/突然沉默）、内心（想一件具体的事而非抽象抒情）。
+- 磁场：先立角色日常基线，情绪冲击时偏离基线（话多的人突然沉默）=最可靠的情绪强度信号。
+- 极致克制：真痛到极点的人往往不动声色、只做无关的事或说句不相干的话；克制比宣泄更戳人，留白让读者自己填。`;
+
+/** 去AI味：网文读者对AI腔极敏感，正文中必须落地（每章生成即去味，不另跑一轮） */
+const DEAI_RULE = `【去AI味·必须落地】生成的正文必须像真人手笔，严禁"AI腔"（编辑一眼看穿的雷区都列在这）：
+- 禁机械结构词：通篇不许出现"首先/其次/最后/第一/第二/总之/综上所述"这种教科书式排比；改用"我听说""我发现""话说""说起来""你猜怎么着"等口语过渡，或干脆不过渡直接跳。
+- 标点故障感：适当用破折号、省略号、波浪号、半截话、突然断句，别每句都工整句号收尾；网文读者就吃这种碎碎念的语感。
+- 逻辑可跳跃：普通人说话会扯闲篇、会突然转到别的事、会思维跳跃，别写得像机器般顺滑无死角。
+- 句式别太规整：长短句混着来，紧张处短句连击、抒情处长句拖尾，别均匀发力。
+- 加大白话：接地气的吐槽、内心嘀咕、方言词、口头禅、答非所问的对话全用上，别通篇书面语。
+- 替换热词：少碰"非常/真的/无论/简直/不得不说"这类被用烂的词，换个长短不一的说法。
+- 多举具体例子与主观感受：写感受就写"我那会儿手都抖了"，别写"他非常紧张"。
+- 少用引号：真人不会给每个关键词加""强调，只有引用原话/反讽/特指术语才用引号；"起步阶段""赚钱项目"这种普通词一律裸奔，靠语境突出。
+- 主动语态：别写"被很多人认可""据称""据说"这类无主被动句，改写成"很多读者都懂""大伙儿都认"这种有主语的活人话。
+- 核心词不反复念：同一核心词一段话里最多出现 1 次、全文不超过 3 次；靠例子和语境突出，而不是刷标语式重复。
+- 不堆砌成语四字词：少用"古色古香/跌宕起伏/应有尽有/无微不至/不得不说"这类被用滥的四字，换成更准更土的大白话。
+- 段落错落：长短不一、一段只说一件事，长段落拆开，别排得整整齐齐。
+- 核心情节、信息、人名、时间线一个字不许改，只是换成更自然、更像人说话的说法。`;
 
 export interface TaskStep {
   stage: string;
@@ -655,6 +706,36 @@ export class NovelService {
     };
   }
 
+  /**
+   * 救场三招：剧情平了的时候，按「强设新目标 → 硬加冲突 → 飞卢快节奏」出三条
+   * 能直接当下一章写作指令的方案。
+   * @param situation 作者自述哪里平（可空）；空着就从最近几章自己判断
+   */
+  async runRescue(id: string, situation?: string) {
+    const n: any = await this.getNovel(id);
+    const card = parseHype(n.hypeJson);
+    // 最近几章：判断"平在哪"要靠它们。只取非 stale 的正文章，按章号倒序取 4 章
+    const rows = await this.prisma.chapter.findMany({
+      where: { novelId: id, stale: false } as any,
+      orderBy: { order: 'desc' },
+      take: 4,
+      select: { order: true, title: true, summary: true },
+    });
+    const text = await this.ai.chat(
+      rescuePrompt({
+        title: n.title, genre: n.genre, targetReader: n.targetReader,
+        outline: n.outline, situation,
+        recent: rows.reverse().map((r: any) => ({ order: r.order, title: r.title, summary: r.summary })),
+        card,
+      }),
+      120000,
+    );
+    const parsed = tryParseJson(text, ['plans']) || null;
+    const plans = normalizeRescuePlans(parsed);
+    // 三招全灭 = 这次救场没给出能用的东西，返回空让前端提示重试，别把半成品当方案
+    return { title: n.title, plans };
+  }
+
   /** 一键开书的任务链：定位 → 大纲 → 脉络+时间线 → 爽点会诊 → 上架资料 → 黄金三章 → 封面 */
   private async startQuickJob(id: string, dto: QuickStartDto) {
     return this.startJob(id, 'quick', [
@@ -815,8 +896,30 @@ ${avoidLine}
    * 原因原文和当时的作品快照一并留档（Feedback 表，只增不删），
    * 这是我们唯一真实的外部裁判信号：自己的体检再准也只是"自评"。
    */
+  /**
+   * 归档守卫：被拒后作者选了「新建一本」，旧作就收进归档**只读**——
+   * 不能再续更、不能重写、不能改设定（驳回原因照留，那是下次开书最值钱的避坑样本）。
+   * 作者本人（白名单）的书不归档，这条守卫对他永远不触发。
+   */
+  private assertNotArchived(n: any): void {
+    if (n && n.archived) {
+      throw new BadRequestException('这部作品已归档（被拒后你选择了新建一本），只能查看，不能再更新。');
+    }
+  }
+
+  /** 这部作品是不是作者本人的：本人要留着反复试，不受"被拒即归档"约束 */
+  private async isOwnerNovel(n: any): Promise<boolean> {
+    if (!n?.userId) return false; // 游客 / 历史无主作品都按普通用户算
+    const u = await this.prisma.user.findUnique({
+      where: { id: n.userId },
+      select: { openid: true },
+    });
+    return isOwner(u as any);
+  }
+
   async rejectNovel(id: string, dto: RejectDto = {}) {
     const n: any = await this.getNovel(id);
+    this.assertNotArchived(n); // 已归档的书是终态，不能再改平台结论
     const reason = String(dto.reason || '').trim();
     const chapters = await this.prisma.chapter.findMany({
       where: { novelId: id, stale: false } as any,
@@ -928,12 +1031,21 @@ ${kind === 'passed' ? '作者的说明' : '平台驳回原话'}：${reason}
   /**
    * 【被拒后自动重开一本】把旧作品标成被拒（腾出名额）→ 立刻在同一平台新建一部，
    * 并把"上一部为什么被拒"作为硬约束交给 AI，避免换个书名又写回同一个坑。
+   *
+   * 作者 2026-10-12 定的规则：被拒后作者**二选一**——「改编这本」还是「新建一本」。
+   * 选了新建：旧作收进**归档**（只读，连改设定都不行；驳回原因留档当避坑样本）。
+   * 作者本人的书不归档 —— 他要留着反复试，不能被自己定的规则挡着。
    */
   async restartAfterReject(id: string, dto: RejectDto = {}) {
     const old: any = await this.getNovel(id);
+    this.assertNotArchived(old); // 已归档的不能再重开（重开一次就是换书名重写，归档就是为堵这个）
     // 作者可能直接点"重开一本"而没先登记原因：这里补登记，保证反馈数据不漏
     if (old.status !== 'rejected') {
       await this.rejectNovel(id, { reason: dto.reason });
+    }
+    // 选了「新建一本」= 旧作到此为止：普通用户的作品归档只读；本人的不归档
+    if (!(await this.isOwnerNovel(old))) {
+      await this.prisma.novel.update({ where: { id }, data: { archived: true } as any });
     }
     return this.quickStart(
       {
@@ -954,6 +1066,7 @@ ${kind === 'passed' ? '作者的说明' : '平台驳回原话'}：${reason}
 
   async updateNovel(id: string, dto: UpdateNovelDto) {
     const before: any = await this.getNovel(id);
+    this.assertNotArchived(before); // 归档只读：改名/改字数/改标签全停（删除入口不走这里，仍可删）
     const data: any = { ...dto };
 
     // 每章字数：游客级别锁死不给调，付费级别也不能超过自己等级的上限。
@@ -1432,6 +1545,7 @@ ${dto.opinion ? `作者的修改意见（必须落实）：${dto.opinion}` : ''}
     return `你是网文爆款写作助手，按【${p.name}】平台规则写稿。
 【热榜研读】${HOT_STUDY_RULE}
 ${ANTI_CLASH_RULE}
+${CRAFT_RULE}
 【过审即底线】选题与大纲阶段就要避开平台雷区：核心设定不许照搬热榜、主线不许"模板化套路串"、
   题材必须能撑起 30 万字以上（七猫人工审要求看得到 30 万字后的剧情走向）。
 当前作品：题材=${n.genre || '未定'}，目标读者=${n.targetReader || '未定'}，签约状态=${n.contractStatus}。
@@ -1982,6 +2096,7 @@ mid = 有近似结构但可用剧情拉开；high = 直接撞在榜热书。
     const prompt = `你是网文爆款写作助手+故事架构师，按【${p.name}】平台规则，为下面作品生成《全书脉络·故事圣经》。
 作品：名=${n.title}，一句话卖点=${n.sellPoint || ''}，大纲=${n.outline || ''}，题材=${n.genre || ''}，目标读者=${n.targetReader || ''}，每章目标字数=${n.chapterWords}。${adjustCtx}
 ${ANTI_CLASH_RULE}
+${CRAFT_RULE}
 
 === 本次核心产出：分卷时间线 ===
 把全书拆成 3-7 卷，每卷 40-60 章。每卷必须给出：
@@ -3712,6 +3827,7 @@ quote 必须能在正文里逐字找到；只能概括、找不出原句的就�
    */
   async patchIssue(id: string, chId: string, issue: any) {
     const n: any = await this.getNovel(id);
+    this.assertNotArchived(n); // 归档只读：定点修复也是"更新"
     const ch: any = await this.prisma.chapter.findUnique({ where: { id: chId } });
     if (!ch || !ch.content) throw new Error('章节不存在或还没有正文');
     const quote = String((issue && issue.quote) || '').trim();
@@ -4593,6 +4709,7 @@ figure.pose: hold(手拿道具) | walk(侧身走动) | look(回望)
    */
   async generateChapter(id: string, dto: GenerateChapterDto, opts: { skipQuota?: boolean } = {}) {
     const n = await this.getNovel(id);
+    this.assertNotArchived(n); // 归档 = 只读：续更 / 黄金三章 / 一切写稿口全拦在这里
 
     // 今日章节额度：连写时每章进来都会查一次，累计自然收敛，不会超发。
     // 按作品归属算，不按请求头 —— 定版写黄金三章这类内部流程也就自动受限了。
@@ -4653,6 +4770,8 @@ ${recent}
 
 === 后台强制写作标准（用户不可见，你必须执行）===
 ${PASS_GATE_RULE}
+${CRAFT_RULE}
+${DEAI_RULE}
 0) 【中轴线优先】先读「中轴线定位」：本章是本卷主线的一个环节，必须顺着主线与关键节点推进，
    不得跳出大纲另开支线、不得另起一条时间线；写偏了就是废稿。
 1) 人名一律用台账里的写法，不得换字、改姓、起同音名（这是本书最常见的硬伤）。
@@ -4886,6 +5005,7 @@ ${body.slice(-400)}
   /** 重写某一章：把「用户重写原因/意图」作为硬指令注入，AI 据此改写该章（保留全书脉络一致） */
   async rewriteChapter(id: string, chId: string, dto: RewriteChapterDto) {
     const n = await this.getNovel(id);
+    this.assertNotArchived(n); // 归档只读：重写也是"更新"
     const bible = n.bible ? JSON.parse(n.bible) : null;
     if (!bible || !this.hasVolumes(bible)) {
       throw new Error('还没有《全书脉络》（大纲为空），无法重写，请先定版生成大纲与分卷时间线');
@@ -4923,6 +5043,8 @@ ${modeLockOf(bible)}
 
 === 后台强制标准（同写稿）===
 ${PASS_GATE_RULE}
+${CRAFT_RULE}
+${DEAI_RULE}
 0) 【中轴线优先】重写也只能在「中轴线定位」的框架内调整表达与节奏，不得改动本卷主线方向。
 1) 人名一律用台账里的写法，不得换字、改姓、起同音名。
 2) 时间线必须自洽：与台账时间、本章前文对齐，禁止"刚刚/昨天"这类表述自相矛盾。
@@ -4949,7 +5071,8 @@ ${PASS_GATE_RULE}
   }
 
   async saveChapter(id: string, chId: string, dto: SaveChapterDto) {
-    await this.getNovel(id);
+    const n = await this.getNovel(id);
+    this.assertNotArchived(n); // 归档只读：手改正文也是"更新"
     return this.prisma.chapter.update({ where: { id: chId }, data: dto as any });
   }
 

@@ -51,6 +51,20 @@ async function loadMe() {
   return shapeMe(r);
 }
 
+/**
+ * 当前账号是不是作者本人（不限量白名单）。
+ * 用来放行"本人专属"行为：作品数不限、被拒不归档。
+ * 请求失败一律当不是本人（按普通用户的规则走最稳）。
+ */
+async function isOwnerAccount() {
+  try {
+    const me = await loadMe();
+    return !!me.unlimited;
+  } catch (e) {
+    return false;
+  }
+}
+
 /** 主动登录。成功返回 {ok:true, claimed}；失败返回 {ok:false, msg}（msg 可直接 toast） */
 function loginNow() {
   const app = typeof getApp === 'function' ? getApp() : null;
@@ -58,4 +72,4 @@ function loginNow() {
   return app.loginNow();
 }
 
-module.exports = { shapeMe, loadMe, loginNow };
+module.exports = { shapeMe, loadMe, loginNow, isOwnerAccount };

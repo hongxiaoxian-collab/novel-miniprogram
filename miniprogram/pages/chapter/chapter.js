@@ -58,6 +58,12 @@ Page({
     taskText: '',
     jobText: '',          // 续写进度文案
     busy: false,
+    archived: false,      // 已归档（被拒后选了新建一本）：只读，写入口全收
+    // 救场三招（剧情平淡时）：点「🚨 救场」让 AI 按本书现出三条方案，点哪条就用哪条写下一章
+    showRescue: false,
+    rescueBusy: false,
+    rescueSituation: '',
+    rescuePlans: [],
     auditing: false,      // 一致性体检中
     auditText: '',        // 体检进度文案
     auditResult: null,    // 体检结果 {score, summary, checkedChapters, issues[], autoFix[], human[], dup, options[]}
@@ -119,6 +125,8 @@ Page({
     this.setData({
       novelId: id, novelTitle: nov.title, platform: nov.platform,
       bibleStatus: nov.bibleStatus || '', chapterWords: nov.chapterWords || 2000,
+      // 归档 = 只读（被拒后作者选了新建一本）：所有写入口在界面上就收起来，别让作者点了才被后端拦
+      archived: !!nov.archived,
     });
   },
 
@@ -210,17 +218,18 @@ Page({
   },
   /**
    * 续更：连写 N 章（承接上章章末钩子，@param n 章数，默认 1）。
+   * @param instruction 写作指令（救场方案点过来时带上：AI 按这条写下一章）
    * 走后台任务：一章要跑 40 秒以上，挂在单次请求上退出小程序就断了；
    * 现在退出也照写，回来还能看到"写到第几步"。每章写完顺带自检矛盾并当场改。
    */
-  async nextChapter(n) {
+  async nextChapter(n, instruction) {
     const id = this.data.novelId;
     if (!id || this.data.busy) return;
     const count = Math.max(1, Math.min(20, Number(n) || 1));
     const order = this.data.flat.length + 1;
     const range = count > 1 ? `第 ${order}~${order + count - 1} 章` : `第 ${order} 章`;
     this.setData({ busy: true, editing: false, jobText: `准备写${range}…` });
-    const pTitle = `续写${range}`;
+    const pTitle = instruction ? `按救场方案写${range}` : `续写${range}`;
     this.startProg(pTitle);
     try {
       // 章数越多给的时间越长：一章约 40~90 秒（含自检），10 章差不多要 15 分钟
@@ -228,7 +237,10 @@ Page({
         const txt = jobText(jb);
         this.setData({ jobText: txt });
         this.onProg(pTitle, jb);
-      }, { wordCount: this.data.chapterWords || 2000, count, maxMs: (20 + count * 4) * 60000 });
+      }, {
+        wordCount: this.data.chapterWords || 2000, count, maxMs: (20 + count * 4) * 60000,
+        instruction: instruction || undefined,
+      });
       this.endProg();
       await this.loadChapters();
       const flat = this.data.flat;
@@ -253,6 +265,41 @@ Page({
     }
   },
   goBot() { wx.navigateTo({ url: '/pages/bot/bot' }); },
+
+  /**
+   * 【🚨 救场】剧情平了的时候：让 AI 按本书情况出「强设新目标 / 硬加冲突 / 飞卢快节奏」三条方案。
+   * 方案直接可当写作指令 —— 点「用这招写下一章」就带着这条指令去续更 1 章。
+   */
+  async openRescue() {
+    if (this.data.busy || this.data.rescueBusy) return;
+    this.setData({ showRescue: true, rescueBusy: true, rescuePlans: [] });
+    try {
+      const r = await request(`/novel/${this.data.novelId}/rescue`, 'POST', {
+        situation: this.data.rescueSituation || undefined,
+      });
+      const plans = (r && r.plans) || [];
+      if (!plans.length) {
+        wx.showToast({ title: 'AI 没给出可用方案，再点一次', icon: 'none', duration: 3000 });
+      }
+      this.setData({ rescuePlans: plans });
+    } catch (e) {
+      wx.showToast({ title: ((e && e.message) || '救场失败').slice(0, 30), icon: 'none', duration: 3000 });
+    }
+    this.setData({ rescueBusy: false });
+  },
+  onRescueSituation(e) { this.setData({ rescueSituation: e.detail.value }); },
+  closeRescue() {
+    if (this.data.rescueBusy) return;
+    this.setData({ showRescue: false, rescuePlans: [], rescueSituation: '' });
+  },
+  /** 点某条方案 → 带着它当写作指令，续更 1 章 */
+  useRescue(e) {
+    const i = Number(e.currentTarget.dataset.i);
+    const p = (this.data.rescuePlans || [])[i];
+    if (!p) return;
+    this.setData({ showRescue: false });
+    this.nextChapter(1, `【救场·${p.name}】${p.plan}`);
+  },
 
   /**
    * 一键体检（后台任务）：代码硬扫 + AI 语义核对 + 撞车比对。

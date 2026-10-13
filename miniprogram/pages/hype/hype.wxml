@@ -7,6 +7,14 @@
   <view class="btn" wx:if="{{!busy}}" bindtap="rebuild">🎯 现在跑一场爽点会诊</view>
 </view>
 
+<!-- 版本过旧：爽点卡结构升级（新增四大钩子+救场三招）后，旧卡作废，重跑一次即可 -->
+<view wx:if="{{status==='done' && !card}}" class="card">
+  <view class="muted" style="text-align:center;padding:30rpx">
+    爽点卡已升级（新增四大结构钩子与救场三招），旧版卡片停用。<br />重跑一次会诊即可拿到新版。
+  </view>
+  <view class="btn" wx:if="{{!busy}}" bindtap="rebuild">🔁 重跑会诊（拿到新版）</view>
+</view>
+
 <view wx:if="{{status==='failed'}}" class="card">
   <view class="muted" style="text-align:center;padding:30rpx">
     上次会诊没产出合格结论（AI 给的答案不合格，比如核心爽点只写了「打脸」这种空词）。
@@ -47,6 +55,30 @@
         <view class="tl-event" wx:if="{{item.anchor}}">★ {{item.anchor}}</view>
         <view class="tl-sub">对象轴 {{item.object}}｜方式轴 {{item.method}}｜代价轴 {{item.cost}}</view>
       </view>
+    </view>
+  </view>
+
+  <!-- 四大结构钩子：长线追读骨架，写稿时每章至少推动一条 -->
+  <view class="card" wx:if="{{card.hooks.length}}" style="border-left:8rpx solid #07c160">
+    <view class="card-h">🪝 四大结构钩子（本书凭什么让人追到三百章）</view>
+    <view class="muted" style="margin-bottom:12rpx">
+      爽点管单章爽什么，这四条管长线。写稿时每章至少推动一条，两条更好。
+    </view>
+    <view wx:for="{{card.hooks}}" wx:key="key" style="margin-bottom:16rpx">
+      <view style="font-weight:700;color:#0a7d33">{{index + 1}}. {{item.name}}</view>
+      <view class="muted" style="margin-top:4rpx">{{item.how}}</view>
+    </view>
+  </view>
+
+  <!-- 救场三招：剧情平淡时按序取用 -->
+  <view class="card" wx:if="{{card.rescue.length}}" style="border-left:8rpx solid #ff5252">
+    <view class="card-h">🚨 救场三招（剧情平了的时候）</view>
+    <view class="muted" style="margin-bottom:12rpx">
+      出现平淡信号就按 1→2→3 的顺序用。在写稿页点「🚨 救场」可让 AI 按本书情况现出三条方案。
+    </view>
+    <view wx:for="{{card.rescue}}" wx:key="key" style="margin-bottom:14rpx">
+      <view style="font-weight:700;color:#d32f2f">{{index + 1}}. {{item.name}}</view>
+      <view class="muted" style="margin-top:4rpx">{{item.how}}</view>
     </view>
   </view>
 

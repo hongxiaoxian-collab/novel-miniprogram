@@ -173,8 +173,11 @@ Page({
    */
   async newNovel() {
     if (this.data.busy) return;
-    // 每个平台最多 1 部在写：已有就直接说明，别让作者等到后端回一句"超限"
-    if ((this.data.novels || []).length > 0) {
+    // 同平台最多 1 部在写：普通账号已有就直接说明，别让作者等到后端回一句"超限"。
+    // 但**作者本人（不限量白名单）不受此限**：按钮永远打开，作品数不限，最终判据交给后端闸门。
+    const acct = this.data.acct || {};
+    const owner = acct.unlimited || (Number(acct.maxNovels) || 0) >= 999999;
+    if (!owner && (this.data.novels || []).length > 0) {
       wx.showToast({
         title: `${this.data.platform === 'qimao' ? '七猫' : '番茄'}已有一部在写；被拒了就点「被拒」，系统会自动重开一本`,
         icon: 'none', duration: 3000,
@@ -264,10 +267,16 @@ Page({
     if (this.data.busy) return;
     const id = e.currentTarget.dataset.id;
     const title = e.currentTarget.dataset.title || '这部作品';
+    // 作者本人的书不归档（他要留着反复试），提示话术因此不同
+    const acct = this.data.acct || {};
+    const owner = acct.unlimited || (Number(acct.maxNovels) || 0) >= 999999;
     const res = await new Promise((resolve) => {
       wx.showModal({
         title: '被拒后自动重开一本',
-        content: `《${title}》会保留在下面（驳回原因一起留档，作为以后开书的避坑依据）。\n\n现在在同一平台开一部新书，AI 会避开这次被拒的原因重新定书名、题材和大纲。要开始吗？`,
+        content: owner
+          ? `《${title}》会保留在下面（驳回原因一起留档，作为以后开书的避坑依据）。\n\n现在在同一平台开一部新书，AI 会避开这次被拒的原因重新定书名、题材和大纲。要开始吗？`
+          : `《${title}》会收进**归档**：只读留档（驳回原因是最值钱的避坑样本），以后再不能更新它。\n\n`
+            + '现在在同一平台开一部新书，AI 会避开这次被拒的原因重新定书名、题材和大纲。要开始吗？',
         confirmText: '开新书',
         success: (r) => resolve(r.confirm),
         fail: () => resolve(false),
