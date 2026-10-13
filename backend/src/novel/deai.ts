@@ -27,6 +27,10 @@ export interface Fingerprint {
   shortRatio: number;
   /** 长句（>30 字）占比，目标 ≥0.05 */
   longRatio: number;
+  /** 超短句占比（百分比整数，展示用） */
+  shortPct: number;
+  /** 长句占比（百分比整数，展示用） */
+  longPct: number;
   /** 段落数 */
   paras: number;
   /** 段落长度标准差，目标 ≥22（越大越"参差"） */
@@ -163,6 +167,8 @@ export function aiFingerprint(text: string, minChars = 400): Fingerprint {
     maxLen,
     shortRatio: +shortRatio.toFixed(3),
     longRatio: +longRatio.toFixed(3),
+    shortPct: Math.round(shortRatio * 100),
+    longPct: Math.round(longRatio * 100),
     paras: paraLens.length,
     paraStdDev,
     endPunctKinds,

@@ -36,6 +36,16 @@
       style="margin-top:8rpx;font-size:28rpx;line-height:1.8;min-height:400rpx" placeholder="暂无正文" />
   </view>
 
+  <!-- 去 AI 味得分：后端按「朱雀/番茄 AI 检测」同款统计指纹实时算，作者不用每次去朱雀手动测 -->
+  <view wx:if="{{cur.deai && cur.deai.chars > 0}}" class="deai {{cur.deai.pass ? 'ok' : 'bad'}}">
+    <view class="deai-h">
+      <text class="deai-score">{{cur.deai.score}}</text>
+      <text class="deai-label">{{cur.deai.pass ? '去 AI 味达标 · 像真人手笔' : 'AI 味偏重 · 建议降一降'}}</text>
+    </view>
+    <view class="deai-stats">句长标准差 {{cur.deai.stdDev}}（需≥10）· 段落方差 {{cur.deai.paraStdDev}}（需≥22）· 碎句 {{cur.deai.shortPct}}% · 长句 {{cur.deai.longPct}}%</view>
+    <view wx:if="{{!cur.deai.pass}}" class="deai-tip">点「🧹 一键清洗」按过审判据降 AI 味，或「↺ 重写本章」；拿到 ≥60 分且句长标准差≥10 即达标。</view>
+  </view>
+
   <view class="row" style="margin:0 24rpx">
     <button class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0 8rpx 0 0" bindtap="prev">← 上一章</button>
     <button class="btn ghost {{platform==='qimao'?'blue':''}}" style="flex:1;margin:0 0 0 8rpx" bindtap="next">下一章 →</button>
@@ -364,7 +374,8 @@
         <view class="vol">📕 {{vol.volume}} 卷（{{vol.chapters.length}} 章）</view>
         <block wx:for="{{vol.chapters}}" wx:key="id" wx:for-item="ch">
           <view class="ch {{ch.id===cur.id?'cur':''}}" data-ch="{{ch}}" bindtap="selectChapter">
-            {{t.ch(ch.order, ch.title)}}
+            <text class="ch-name">{{t.ch(ch.order, ch.title)}}</text>
+            <text wx:if="{{ch.deai && ch.deai.chars > 0}}" class="ch-deai {{ch.deai.pass ? 'ok' : 'bad'}}">{{ch.deai.score}}</text>
           </view>
         </block>
       </block>

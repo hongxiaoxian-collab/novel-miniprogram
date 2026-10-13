@@ -4700,7 +4700,9 @@ figure.pose: hold(手拿道具) | walk(侧身走动) | look(回望)
     });
     const byVolume: Record<number, any[]> = {};
     chs.forEach((c) => {
-      (byVolume[c.volume] ||= []).push(c);
+      // 附带统计指纹（去 AI 味得分）：前端章节页直接展示，作者不用每次去朱雀手动测。
+      // 空章节(还没正文)aiFingerprint 返回 pass=true、score=0，前端遇到空正文不显示得分条即可。
+      (byVolume[c.volume] ||= []).push({ ...c, deai: aiFingerprint(String(c.content || '')) });
     });
     return Object.keys(byVolume)
       .sort((a, b) => +a - +b)

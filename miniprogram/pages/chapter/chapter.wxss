@@ -24,6 +24,25 @@
 /* 体检结果全屏层
    注意：scroll-view 必须有**确定高度**才会滚动（flex:1 在部分机型拿不到高度 → 内容被裁掉，
    下面的按钮就"被上面挡住"看不见了）。所以这里给滚动区一个显式高度。 */
+/* 去 AI 味得分条：当前章正文下方，颜色随达标与否切换 */
+.deai { margin: 16rpx 0; padding: 16rpx 18rpx; border-radius: 14rpx; border: 2rpx solid #eee; background: #fafafa; }
+.deai.ok { border-color: #b7ebc9; background: #f0fbf4; }
+.deai.bad { border-color: #f6c6c0; background: #fdf0ef; }
+.deai-h { display: flex; align-items: baseline; }
+.deai-score { font-size: 44rpx; font-weight: 800; line-height: 1; }
+.deai.ok .deai-score { color: #07a352; }
+.deai.bad .deai-score { color: #e64340; }
+.deai-label { margin-left: 14rpx; font-size: 26rpx; font-weight: 600; color: #333; }
+.deai-stats { margin-top: 8rpx; font-size: 23rpx; color: #888; line-height: 1.6; }
+.deai-tip { margin-top: 8rpx; font-size: 23rpx; color: #d4380d; line-height: 1.6; }
+
+/* 目录每章右侧的去 AI 味分数圆点 */
+.ch { display: flex; align-items: center; justify-content: space-between; padding: 18rpx 20rpx; border-radius: 12rpx; background: #f6f7f9; margin-bottom: 10rpx; font-size: 28rpx; }
+.ch-name { flex: 1; min-width: 0; }
+.ch-deai { flex: none; margin-left: 12rpx; font-size: 22rpx; font-weight: 700; border-radius: 999rpx; padding: 2rpx 14rpx; }
+.ch-deai.ok { color: #07a352; background: #eafaf0; }
+.ch-deai.bad { color: #e64340; background: #fdeaea; }
+
 .audit-sheet { max-height: 94vh; padding-bottom: 12rpx; }
 /* 底部那行按钮撤掉后多出来的高度给清单，一屏能多看几条 */
 .audit-body { height: 66vh; margin-top: 12rpx; }
