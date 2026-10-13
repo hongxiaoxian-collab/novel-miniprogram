@@ -27,6 +27,7 @@ import {
   hypeBriefForChapter, normalizeHype, parseHype, thrillPrompt, HypeCard,
   rescuePrompt, normalizeRescuePlans,
 } from './thrill';
+import { aiFingerprint, deaiRewritePrompt } from './deai';
 import { PLATFORMS, getPlatform, tagWhitelist } from '../platform/platform.config';
 import {
   CreateNovelDto,
@@ -4830,7 +4831,9 @@ ${DEAI_RULE}
       }
     }
     const fresh = await this.prisma.chapter.findUnique({ where: { id: saved.id } });
-    return { ...(fresh || saved), healNote, healInfo };
+    // 去 AI 味指纹（体检后最终正文的统计分）：供小程序展示"本节去 AI 味得分"
+    const finalContent = String((fresh || saved).content || '');
+    return { ...(fresh || saved), healNote, healInfo, deai: aiFingerprint(finalContent) };
   }
 
   /**
@@ -5069,10 +5072,11 @@ ${DEAI_RULE}
       where: { id },
       data: { canon: JSON.stringify(mergeCanon(canon, newCanon || null)) } as any,
     });
-    return this.prisma.chapter.update({
+    const saved = await this.prisma.chapter.update({
       where: { id: chId },
       data: { title, content, summary, status: 'done' } as any,
     });
+    return { ...saved, deai: aiFingerprint(String(content || '')) };
   }
 
   async saveChapter(id: string, chId: string, dto: SaveChapterDto) {
@@ -5128,17 +5132,58 @@ ${DEAI_RULE}
   private async askChapter(prompt: string, fallbackTitle: string) {
     let text = await this.ai.chat(prompt, 240000);
     let out = this.parseChapterOutput(text, fallbackTitle);
-    if (out && !out.truncated) return out;
-
-    const retry = `${prompt}
+    if (!(out && !out.truncated)) {
+      const retry = `${prompt}
 
 【上一次输出不合格，请重发】原因：JSON 被截断或无法解析。硬性要求：
 1) 不要用 markdown 代码块包裹，不要输出 \`\`\`；
 2) 正文长度控制在目标字数的 90%-110%，写到目标字数立刻收尾并闭合 JSON；
 3) 必须输出 title / content / summary / canon 四个字段且 JSON 完整闭合（canon 可精简，facts 最多 3 条）。`;
-    text = await this.ai.chat(retry, 240000);
-    out = this.parseChapterOutput(text, fallbackTitle) || out;
+      text = await this.ai.chat(retry, 240000);
+      out = this.parseChapterOutput(text, fallbackTitle) || out;
+    }
     if (!out) throw new Error(`AI 未返回章节正文，原始输出：${text.slice(0, 200)}`);
+    // 去 AI 味·副防线：统计指纹自检，不达标就带着实测差距自适应重写（最多 2 轮）
+    out.content = await this.deaiIfNeeded(out.content);
     return out;
+  }
+
+  /**
+   * 去 AI 味·副防线（统计指纹）。
+   * 朱雀类检测器核心是「困惑度 + 突发性」：AI 文本句长标准差集中在 5–8、段落过于均匀。
+   * 同义词替换对这套指标完全无效，必须改句式结构与节奏。
+   * 做法：先测指纹 → 不达标就把"实测差距"喂回模型做只改句式的重写 → 复测，最多 2 轮；
+   * 没变好立刻停，不空烧额度；太短（<400 字）或已达标则原样返回。
+   */
+  private async deaiIfNeeded(content: string): Promise<string> {
+    const plain = String(content || '').trim();
+    if (aiFingerprint(plain).pass) return content;
+    let best = plain;
+    let fp = aiFingerprint(best);
+    for (let round = 0; round < 2 && !fp.pass; round++) {
+      let next = '';
+      try {
+        next = this.cleanDeaiText(await this.ai.chat(deaiRewritePrompt(best, fp), 240000));
+      } catch (e) {
+        break; // 重写失败不影响已生成正文
+      }
+      if (!next || next.length < best.length * 0.6) break; // 明显缩水/解析异常：弃
+      const nfp = aiFingerprint(next);
+      if (nfp.score <= fp.score) break; // 没变好，别再烧额度
+      best = next;
+      fp = nfp;
+    }
+    return best;
+  }
+
+  /** 去味重写输出清洗：剥 markdown 围栏；万一模型仍返回 JSON 就抽 content */
+  private cleanDeaiText(raw: string): string {
+    let t = String(raw || '').trim();
+    t = t.replace(/^```[a-zA-Z]*\s*/, '').replace(/```\s*$/, '').trim();
+    if (t.includes('"content"')) {
+      const c = looseStringField(t, 'content', ['summary', 'title']);
+      if (c) t = c;
+    }
+    return t.trim();
   }
 }
